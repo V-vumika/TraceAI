@@ -1,6 +1,17 @@
 {
+  "name": "traceai",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@12.9.1",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck"
+  },
   "devDependencies": {
     "prettier": "^3.9.9",
+    "turbo": "^2.5.6",
     "vitest": "^5.0.3"
   }
 }
