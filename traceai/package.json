@@ -4,17 +4,22 @@
   "private": true,
   "packageManager": "pnpm@12.9.1",
   "scripts": {
-  "dev": "turbo dev",
-  "build": "turbo build",
-  "lint": "turbo lint",
-  "typecheck": "turbo typecheck",
-  "infra:up": "docker compose up -d",
-  "infra:down": "docker compose down",
-  "infra:ps": "docker compose ps"
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "infra:ps": "docker compose ps",
+    "db:generate": "pnpm --filter @traceai/db generate",
+    "db:migrate": "pnpm --filter @traceai/db migrate"
   },
   "devDependencies": {
     "prettier": "^3.9.9",
     "turbo": "^2.5.6",
     "vitest": "^5.0.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "unrs-resolver"]
   }
 }
