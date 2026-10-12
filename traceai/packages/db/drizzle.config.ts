@@ -24,6 +24,18 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
+const databaseUrl = new URL(process.env.DATABASE_URL);
+if (
+  
+  process.env.POSTGRES_PORT &&
+  databaseUrl.port !== process.env.POSTGRES_PORT
+) {
+  throw new Error(
+    `DATABASE_URL port ${databaseUrl.port || "5432"} does not match POSTGRES_PORT=${process.env.POSTGRES_PORT}. ` +
+      "Drizzle would migrate the wrong Postgres instance.",
+  );
+}
+
 export default defineConfig({
   schema: "./src/schema.ts",
   out: "./drizzle",
