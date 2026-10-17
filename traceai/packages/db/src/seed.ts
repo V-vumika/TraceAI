@@ -33,6 +33,7 @@ async function seed() {
       .values({
         email,
         name: "TraceAI Demo User",
+        passwordHash: "DISABLED_DEMO_ACCOUNT",
       })
       .returning();
 
