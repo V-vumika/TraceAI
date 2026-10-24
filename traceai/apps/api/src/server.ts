@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import { STATUS_CODES } from "node:http";
 import { z } from "zod";
+import "dotenv/config";
 
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),

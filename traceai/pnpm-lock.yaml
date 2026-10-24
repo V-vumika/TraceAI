@@ -184,9 +184,15 @@ importers:
       '@fastify/jwt':
         specifier: ^10.2.4
         version: 10.2.4
+      '@traceai/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       argon2:
         specifier: ^0.45.1
         version: 0.45.1
+      dotenv:
+        specifier: ^18.0.9
+        version: 18.0.9
       fastify:
         specifier: ^5.0.0
         version: 5.12.7
@@ -1880,6 +1886,11 @@ packages:
 
   dotenv@18.0.6:
     resolution: {integrity: sha512-ZMVmohV6CvAJtj++pZNyggluUt6hbRdQAxc2+Z635RL6/AG/ruXv5lHnybUFoxMPL/yrTL/tsF4paZu2l7RA6Q==}
+    engines: {node: '>=12'}
+    hasBin: true
+
+  dotenv@18.0.9:
+    resolution: {integrity: sha512-3fVOW4cB02R066PUSwn8O4TJyz9NckQl7F81blIbaq9jKBm2tSmOKky7ZHIXzGvkVPXCSn6jkpziBPZdGFs8Tw==}
     engines: {node: '>=12'}
     hasBin: true
 
@@ -4712,6 +4723,8 @@ snapshots:
       esutils: 2.0.3
 
   dotenv@18.0.6: {}
+
+  dotenv@18.0.9: {}
 
   drizzle-kit@0.31.11:
     dependencies:
