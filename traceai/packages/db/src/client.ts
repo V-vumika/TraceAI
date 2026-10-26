@@ -1,3 +1,8 @@
+import { config } from "dotenv";
+import path from "node:path";
+
+config({ path: path.resolve(process.cwd(), "../../.env") });
+
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "./schema";

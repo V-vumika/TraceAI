@@ -257,6 +257,16 @@ const payload = jwt.verify(
   }
 });
 
+app.post("/auth/logout", async (_request, reply) => {
+  reply.clearCookie("traceai_refresh", {
+    path: "/auth",
+  });
+
+  return reply.status(200).send({
+    message: "Logged out successfully.",
+  });
+});
+
 const start = async () => {
   try {
     await app.listen({
