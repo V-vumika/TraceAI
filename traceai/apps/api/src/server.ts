@@ -7,6 +7,7 @@ import fastifyJwt from "@fastify/jwt";
 import fastifyCookie from "@fastify/cookie";
 import { db, users } from "@traceai/db";
 import argon2 from "argon2";
+import jwt from "jsonwebtoken";
 
 config({ path: path.resolve(process.cwd(), "../../.env") });
 
@@ -23,16 +24,16 @@ const parsedEnv = envSchema.safeParse(process.env);
 if (!parsedEnv.success) {
   console.error(
     "Invalid environment variables:",
-    parsedEnv.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`),
+    parsedEnv.error.issues.map(
+      (issue) => `${issue.path.join(".")}: ${issue.message}`,
+    ),
   );
   process.exit(1);
 }
 
 const env = parsedEnv.data;
 
-const app = Fastify({
-  logger: true,
-});
+const app = Fastify({ logger: true });
 
 app.register(fastifyCookie);
 
@@ -40,7 +41,11 @@ app.register(fastifyJwt, {
   secret: env.JWT_ACCESS_SECRET,
 });
 
-const problem = (statusCode: number, detail: string, instance: string) => ({
+const problem = (
+  statusCode: number,
+  detail: string,
+  instance: string,
+) => ({
   type: "about:blank",
   title: STATUS_CODES[statusCode] ?? "Error",
   status: statusCode,
@@ -49,33 +54,33 @@ const problem = (statusCode: number, detail: string, instance: string) => ({
 });
 
 app.setErrorHandler((error, request, reply) => {
-    request.log.error(error);
-  
-    const statusCode =
-      typeof error === "object" &&
-      error !== null &&
-      "statusCode" in error &&
-      typeof error.statusCode === "number" &&
-      error.statusCode >= 400 &&
-      error.statusCode < 600
-        ? error.statusCode
-        : 500;
-  
-    const detail =
-      statusCode >= 500
-        ? "An unexpected error occurred."
-        : error instanceof Error
-          ? error.message
-          : "Request failed.";
-  
-    return reply
-      .status(statusCode)
-      .type("application/problem+json")
-      .send(problem(statusCode, detail, request.url));
-  });
+  request.log.error(error);
 
-  
-// Fastify's default 404 bypasses setErrorHandler, so handle it explicitly
+  const isObject =
+    typeof error === "object" && error !== null;
+
+  const statusCode =
+    isObject &&
+    "statusCode" in error &&
+    typeof error.statusCode === "number" &&
+    error.statusCode >= 400 &&
+    error.statusCode < 600
+      ? error.statusCode
+      : 500;
+
+  const detail =
+    statusCode >= 500
+      ? "An unexpected error occurred."
+      : error instanceof Error
+        ? error.message
+        : "Request failed.";
+
+  return reply
+    .status(statusCode)
+    .type("application/problem+json")
+    .send(problem(statusCode, detail, request.url));
+});
+
 app.setNotFoundHandler((request, reply) => {
   return reply
     .status(404)
@@ -89,13 +94,11 @@ app.setNotFoundHandler((request, reply) => {
     );
 });
 
-app.get("/health", async () => {
-  return {
-    status: "ok",
-    service: "traceai-api",
-    timestamp: new Date().toISOString(),
-  };
-});
+app.get("/health", async () => ({
+  status: "ok",
+  service: "traceai-api",
+  timestamp: new Date().toISOString(),
+}));
 
 const signupSchema = z.object({
   name: z.string().trim().min(2).max(100),
@@ -103,6 +106,12 @@ const signupSchema = z.object({
   password: z.string().min(8).max(128),
 });
 
+const loginSchema = z.object({
+  email: z.string().trim().email().max(255).toLowerCase(),
+  password: z.string().min(1).max(128),
+});
+
+// Signup
 app.post("/auth/signup", async (request, reply) => {
   const parsed = signupSchema.safeParse(request.body);
 
@@ -144,19 +153,19 @@ app.post("/auth/signup", async (request, reply) => {
     message: "Account created successfully.",
     user,
   });
-
-});
-const loginSchema = z.object({
-  email: z.string().trim().email().max(255).toLowerCase(),
-  password: z.string().min(1).max(128),
 });
 
+// Login
 app.post("/auth/login", async (request, reply) => {
   const parsed = loginSchema.safeParse(request.body);
 
   if (!parsed.success) {
     return reply.status(400).send({
       error: "Invalid login details",
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join("."),
+        message: issue.message,
+      })),
     });
   }
 
@@ -188,13 +197,11 @@ app.post("/auth/login", async (request, reply) => {
     { expiresIn: "15m" },
   );
 
-  const jwt = await import("jsonwebtoken");
-
-const refreshToken = jwt.sign(
-  { sub: user.id, email: user.email, type: "refresh" },
-  env.JWT_REFRESH_SECRET,
-  { expiresIn: "7d" },
-);
+  const refreshToken = jwt.sign(
+    { sub: user.id, email: user.email, type: "refresh" },
+    env.JWT_REFRESH_SECRET,
+    { expiresIn: "7d" },
+  );
 
   reply.setCookie("traceai_refresh", refreshToken, {
     httpOnly: true,
@@ -204,7 +211,7 @@ const refreshToken = jwt.sign(
     maxAge: 7 * 24 * 60 * 60,
   });
 
- return reply.status(200).send({
+  return reply.status(200).send({
     message: "Login successful.",
     accessToken,
     user: {
@@ -215,6 +222,7 @@ const refreshToken = jwt.sign(
   });
 });
 
+// Refresh access token
 app.post("/auth/refresh", async (request, reply) => {
   const refreshToken = request.cookies.traceai_refresh;
 
@@ -225,18 +233,19 @@ app.post("/auth/refresh", async (request, reply) => {
   }
 
   try {
-    const jwt = await import("jsonwebtoken");
+    const payload = jwt.verify(
+      refreshToken,
+      env.JWT_REFRESH_SECRET,
+    );
 
-const payload = jwt.verify(
-  refreshToken,
-  env.JWT_REFRESH_SECRET,
-) as {
-  sub: string;
-  email: string;
-  type: string;
-};
+    if (
+      typeof payload === "string" ||
+      payload.type !== "refresh" ||
+      typeof payload.sub !== "string" ||
+      typeof payload.email !== "string"
+    ) {
+      reply.clearCookie("traceai_refresh", { path: "/auth" });
 
-    if (payload.type !== "refresh") {
       return reply.status(401).send({
         error: "Invalid refresh token.",
       });
@@ -257,6 +266,7 @@ const payload = jwt.verify(
   }
 });
 
+// Logout
 app.post("/auth/logout", async (_request, reply) => {
   reply.clearCookie("traceai_refresh", {
     path: "/auth",
@@ -281,6 +291,7 @@ const start = async () => {
 
 const shutdown = async (signal: string) => {
   app.log.info(`Received ${signal}, shutting down...`);
+
   try {
     await app.close();
     process.exit(0);
