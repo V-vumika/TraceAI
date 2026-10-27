@@ -1,13 +1,32 @@
-import Fastify from "fastify";
+import Fastify, { FastifyReply, FastifyRequest } from "fastify";
 import { STATUS_CODES } from "node:http";
 import { z } from "zod";
 import { config } from "dotenv";
 import path from "node:path";
 import fastifyJwt from "@fastify/jwt";
 import fastifyCookie from "@fastify/cookie";
-import { db, users } from "@traceai/db";
+import { db, users, workspaces, memberships } from "@traceai/db";
 import argon2 from "argon2";
 import jwt from "jsonwebtoken";
+
+// ---------------------------------------------------------------------------
+// Type augmentation (fixes TS2339 for `app.authenticate` and `request.user.sub`)
+// ---------------------------------------------------------------------------
+declare module "fastify" {
+  interface FastifyInstance {
+    authenticate: (
+      request: FastifyRequest,
+      reply: FastifyReply,
+    ) => Promise<void>;
+  }
+}
+
+declare module "@fastify/jwt" {
+  interface FastifyJWT {
+    payload: { sub: string; email: string };
+    user: { sub: string; email: string };
+  }
+}
 
 config({ path: path.resolve(process.cwd(), "../../.env") });
 
@@ -33,6 +52,27 @@ if (!parsedEnv.success) {
 
 const env = parsedEnv.data;
 
+// ---------------------------------------------------------------------------
+// Request schemas
+// ---------------------------------------------------------------------------
+const signupSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+  email: z.string().trim().email().max(255).toLowerCase(),
+  password: z.string().min(8).max(128),
+});
+
+const loginSchema = z.object({
+  email: z.string().trim().email().max(255).toLowerCase(),
+  password: z.string().min(1).max(128),
+});
+
+const createWorkspaceSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+});
+
+// ---------------------------------------------------------------------------
+// App setup
+// ---------------------------------------------------------------------------
 const app = Fastify({ logger: true });
 
 app.register(fastifyCookie);
@@ -41,11 +81,20 @@ app.register(fastifyJwt, {
   secret: env.JWT_ACCESS_SECRET,
 });
 
-const problem = (
-  statusCode: number,
-  detail: string,
-  instance: string,
-) => ({
+app.decorate(
+  "authenticate",
+  async function (request: FastifyRequest, reply: FastifyReply) {
+    try {
+      await request.jwtVerify();
+    } catch {
+      await reply.status(401).send({
+        error: "Unauthorized",
+      });
+    }
+  },
+);
+
+const problem = (statusCode: number, detail: string, instance: string) => ({
   type: "about:blank",
   title: STATUS_CODES[statusCode] ?? "Error",
   status: statusCode,
@@ -56,8 +105,7 @@ const problem = (
 app.setErrorHandler((error, request, reply) => {
   request.log.error(error);
 
-  const isObject =
-    typeof error === "object" && error !== null;
+  const isObject = typeof error === "object" && error !== null;
 
   const statusCode =
     isObject &&
@@ -94,22 +142,60 @@ app.setNotFoundHandler((request, reply) => {
     );
 });
 
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
 app.get("/health", async () => ({
   status: "ok",
   service: "traceai-api",
   timestamp: new Date().toISOString(),
 }));
 
-const signupSchema = z.object({
-  name: z.string().trim().min(2).max(100),
-  email: z.string().trim().email().max(255).toLowerCase(),
-  password: z.string().min(8).max(128),
-});
+// Create workspace
+app.post(
+  "/workspaces",
+  { preHandler: (request, reply) => app.authenticate(request, reply) },
+  async (request, reply) => {
+    const parsed = createWorkspaceSchema.safeParse(request.body);
 
-const loginSchema = z.object({
-  email: z.string().trim().email().max(255).toLowerCase(),
-  password: z.string().min(1).max(128),
-});
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: "Invalid workspace details",
+        details: parsed.error.issues.map((issue) => ({
+          field: issue.path.join("."),
+          message: issue.message,
+        })),
+      });
+    }
+
+    const userId = request.user.sub;
+    const { name } = parsed.data;
+
+    const result = await db.transaction(async (tx) => {
+      const [workspace] = await tx
+        .insert(workspaces)
+        .values({ name })
+        .returning();
+
+      if (!workspace) {
+        throw new Error("Failed to create workspace.");
+      }
+
+      await tx.insert(memberships).values({
+        userId,
+        workspaceId: workspace.id,
+        role: "owner",
+      });
+
+      return workspace;
+    });
+
+    return reply.status(201).send({
+      message: "Workspace created successfully.",
+      workspace: result,
+    });
+  },
+);
 
 // Signup
 app.post("/auth/signup", async (request, reply) => {
@@ -181,10 +267,7 @@ app.post("/auth/login", async (request, reply) => {
     });
   }
 
-  const passwordMatches = await argon2.verify(
-    user.passwordHash,
-    password,
-  );
+  const passwordMatches = await argon2.verify(user.passwordHash, password);
 
   if (!passwordMatches) {
     return reply.status(401).send({
@@ -233,10 +316,7 @@ app.post("/auth/refresh", async (request, reply) => {
   }
 
   try {
-    const payload = jwt.verify(
-      refreshToken,
-      env.JWT_REFRESH_SECRET,
-    );
+    const payload = jwt.verify(refreshToken, env.JWT_REFRESH_SECRET);
 
     if (
       typeof payload === "string" ||
@@ -277,6 +357,9 @@ app.post("/auth/logout", async (_request, reply) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Startup / shutdown
+// ---------------------------------------------------------------------------
 const start = async () => {
   try {
     await app.listen({
