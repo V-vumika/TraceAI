@@ -1,5 +1,6 @@
 import Fastify, { FastifyReply, FastifyRequest } from "fastify";
 import { STATUS_CODES } from "node:http";
+import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { config } from "dotenv";
 import path from "node:path";
@@ -93,6 +94,29 @@ app.decorate(
     }
   },
 );
+
+const requireWorkspaceRole = async (
+  userId: string,
+  workspaceId: string,
+  allowedRoles: string[],
+) => {
+  const [membership] = await db
+    .select({ role: memberships.role })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.userId, userId),
+        eq(memberships.workspaceId, workspaceId),
+      ),
+    )
+    .limit(1);
+
+  if (!membership || !allowedRoles.includes(membership.role)) {
+    return null;
+  }
+
+  return membership;
+};
 
 const problem = (statusCode: number, detail: string, instance: string) => ({
   type: "about:blank",
@@ -193,6 +217,37 @@ app.post(
     return reply.status(201).send({
       message: "Workspace created successfully.",
       workspace: result,
+    });
+  },
+);
+
+// Check workspace membership and role
+app.get(
+  "/workspaces/:workspaceId/access",
+  { preHandler: (request, reply) => app.authenticate(request, reply) },
+  async (request, reply) => {
+    const { workspaceId } = request.params as {
+      workspaceId: string;
+    };
+
+    const userId = request.user.sub;
+
+    const membership = await requireWorkspaceRole(
+      userId,
+      workspaceId,
+      ["owner", "member"],
+    );
+
+    if (!membership) {
+      return reply.status(403).send({
+        error: "You are not a member of this workspace.",
+      });
+    }
+
+    return reply.send({
+      workspaceId,
+      role: membership.role,
+      access: true,
     });
   },
 );
