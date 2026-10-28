@@ -42,3 +42,7 @@ yarn-error.log*
 next-env.d.ts
 
 **/.next/
+
+# Generated JavaScript files from TypeScript
+apps/api/src/*.js
+packages/db/src/*.js
