@@ -46,3 +46,5 @@ next-env.d.ts
 # Generated JavaScript files from TypeScript
 apps/api/src/*.js
 packages/db/src/*.js
+
+.turbo
