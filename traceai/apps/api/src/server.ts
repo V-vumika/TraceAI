@@ -75,6 +75,7 @@ const createWorkspaceSchema = z.object({
 // App setup
 // ---------------------------------------------------------------------------
 const app = Fastify({ logger: true });
+export { app };
 
 app.register(fastifyCookie);
 
@@ -442,4 +443,6 @@ const shutdown = async (signal: string) => {
 process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
-void start();
+if (process.env.NODE_ENV !== "test") {
+  void start();
+}
