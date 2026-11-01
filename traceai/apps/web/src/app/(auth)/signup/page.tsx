@@ -1,20 +1,38 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { AuthCard } from '@/components/auth-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { apiFetch, type SignupResponse } from '@/lib/api';
 
 type Errors = { name?: string; email?: string; password?: string };
 
 export default function SignupPage() {
+  const router = useRouter();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<Errors>({});
-  const [loading, setLoading] = useState(false);
+
+  const signupMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<SignupResponse>('/auth/signup', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim(),
+          password,
+        }),
+      }),
+    onSuccess: () => {
+      router.push('/login');
+    },
+  });
 
   function validate(): Errors {
     const next: Errors = {};
@@ -30,16 +48,13 @@ export default function SignupPage() {
     return next;
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const next = validate();
     setErrors(next);
     if (Object.keys(next).length > 0) return;
 
-    setLoading(true);
-    // TODO (Task 18): call POST /auth/signup through the typed API client.
-    console.log('signup submit', { name, email });
-    setLoading(false);
+    signupMutation.mutate();
   }
 
   return (
@@ -102,8 +117,18 @@ export default function SignupPage() {
           )}
         </div>
 
-        <Button type="submit" className="w-full" disabled={loading}>
-          {loading ? 'Creating account...' : 'Sign up'}
+        {signupMutation.isError && (
+          <p className="text-sm text-destructive">
+            {signupMutation.error.message}
+          </p>
+        )}
+
+        <Button
+          type="submit"
+          className="w-full"
+          disabled={signupMutation.isPending}
+        >
+          {signupMutation.isPending ? 'Creating account...' : 'Sign up'}
         </Button>
       </form>
     </AuthCard>
