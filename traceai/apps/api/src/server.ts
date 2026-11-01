@@ -9,6 +9,7 @@ import fastifyCookie from "@fastify/cookie";
 import { db, users, workspaces, memberships } from "@traceai/db";
 import argon2 from "argon2";
 import jwt from "jsonwebtoken";
+import fastifyCors from "@fastify/cors";
 
 // ---------------------------------------------------------------------------
 // Type augmentation (fixes TS2339 for `app.authenticate` and `request.user.sub`)
@@ -78,6 +79,12 @@ const app = Fastify({ logger: true });
 export { app };
 
 app.register(fastifyCookie);
+
+app.register(fastifyCors, {
+  origin: "http://localhost:3000",
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+});
 
 app.register(fastifyJwt, {
   secret: env.JWT_ACCESS_SECRET,
