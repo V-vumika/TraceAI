@@ -5,35 +5,27 @@ import {
   Background,
   Controls,
   MiniMap,
+  Panel,
   ReactFlow,
-  addEdge,
-  useEdgesState,
-  useNodesState,
-  type Connection,
-  type Edge,
-  type Node,
+  type OnSelectionChangeParams,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-
-const initialNodes: Node[] = [
-  { id: '1', position: { x: 0, y: 0 }, data: { label: 'Manual Trigger' } },
-  { id: '2', position: { x: 240, y: 0 }, data: { label: 'LLM' } },
-  { id: '3', position: { x: 480, y: 0 }, data: { label: 'HTTP' } },
-];
-
-const initialEdges: Edge[] = [
-  { id: 'e1-2', source: '1', target: '2' },
-  { id: 'e2-3', source: '2', target: '3' },
-];
+import { useGraphStore } from '@/stores/graph-store';
 
 export function WorkflowCanvas() {
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const nodes = useGraphStore((state) => state.nodes);
+  const edges = useGraphStore((state) => state.edges);
+  const selectedNodeIds = useGraphStore((state) => state.selectedNodeIds);
+  const onNodesChange = useGraphStore((state) => state.onNodesChange);
+  const onEdgesChange = useGraphStore((state) => state.onEdgesChange);
+  const onConnect = useGraphStore((state) => state.onConnect);
+  const setSelection = useGraphStore((state) => state.setSelection);
 
-  const onConnect = useCallback(
-    (connection: Connection) =>
-      setEdges((current) => addEdge(connection, current)),
-    [setEdges],
+  const handleSelectionChange = useCallback(
+    ({ nodes: selected }: OnSelectionChangeParams) => {
+      setSelection(selected.map((node) => node.id));
+    },
+    [setSelection],
   );
 
   return (
@@ -44,6 +36,7 @@ export function WorkflowCanvas() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onSelectionChange={handleSelectionChange}
         snapToGrid
         snapGrid={[16, 16]}
         colorMode="system"
@@ -52,6 +45,12 @@ export function WorkflowCanvas() {
         <Background gap={16} />
         <Controls />
         <MiniMap pannable zoomable />
+        <Panel position="top-left">
+          <div className="rounded-md border bg-background px-3 py-2 text-sm">
+            {nodes.length} nodes · {edges.length} edges · {selectedNodeIds.length}{' '}
+            selected
+          </div>
+        </Panel>
       </ReactFlow>
     </div>
   );
