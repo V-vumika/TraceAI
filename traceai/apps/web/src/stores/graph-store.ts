@@ -18,6 +18,8 @@ type GraphState = {
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
   setSelection: (ids: string[]) => void;
+  selectAll: () => void;
+  duplicateSelected: () => void;
 };
 
 const initialNodes: Node[] = [
@@ -46,4 +48,44 @@ export const useGraphStore = create<GraphState>()((set) => ({
     set((state) => ({ edges: addEdge(connection, state.edges) })),
 
   setSelection: (ids) => set({ selectedNodeIds: ids }),
+
+  selectAll: () =>
+    set((state) => ({
+      nodes: state.nodes.map((node) => ({ ...node, selected: true })),
+    })),
+
+  duplicateSelected: () =>
+    set((state) => {
+      const selected = state.nodes.filter((node) => node.selected);
+      if (selected.length === 0) return state;
+
+      const idMap = new Map<string, string>();
+      const copies = selected.map((node) => {
+        const newId = crypto.randomUUID();
+        idMap.set(node.id, newId);
+        return {
+          ...node,
+          id: newId,
+          position: { x: node.position.x + 32, y: node.position.y + 32 },
+          selected: true,
+        };
+      });
+
+      const edgeCopies = state.edges.flatMap((edge) => {
+        const source = idMap.get(edge.source);
+        const target = idMap.get(edge.target);
+        if (!source || !target) return [];
+        return [
+          { ...edge, id: crypto.randomUUID(), source, target, selected: false },
+        ];
+      });
+
+      return {
+        nodes: [
+          ...state.nodes.map((node) => ({ ...node, selected: false })),
+          ...copies,
+        ],
+        edges: [...state.edges, ...edgeCopies],
+      };
+    }),
 }));
