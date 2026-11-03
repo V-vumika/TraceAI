@@ -27,9 +27,24 @@ type GraphState = {
 };
 
 const initialNodes: Node[] = [
-  { id: '1', position: { x: 0, y: 0 }, data: { label: 'Manual Trigger' } },
-  { id: '2', position: { x: 240, y: 0 }, data: { label: 'LLM' } },
-  { id: '3', position: { x: 480, y: 0 }, data: { label: 'HTTP' } },
+  {
+    id: '1',
+    type: 'workflow',
+    position: { x: 0, y: 0 },
+    data: { label: 'Manual Trigger', nodeType: 'manual-trigger', status: 'idle' },
+  },
+  {
+    id: '2',
+    type: 'workflow',
+    position: { x: 288, y: 0 },
+    data: { label: 'LLM', nodeType: 'llm', status: 'idle' },
+  },
+  {
+    id: '3',
+    type: 'workflow',
+    position: { x: 576, y: 0 },
+    data: { label: 'HTTP Request', nodeType: 'http', status: 'idle' },
+  },
 ];
 
 const initialEdges: Edge[] = [
@@ -99,8 +114,9 @@ export const useGraphStore = create<GraphState>()((set) => ({
         ...state.nodes.map((node) => ({ ...node, selected: false })),
         {
           id: crypto.randomUUID(),
+          type: 'workflow',
           position,
-          data: { label: item.label, nodeType: item.type },
+          data: { label: item.label, nodeType: item.type, status: 'idle' },
           selected: true,
         },
       ],
