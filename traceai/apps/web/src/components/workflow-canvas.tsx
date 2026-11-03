@@ -1,16 +1,21 @@
 'use client';
 
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, type DragEvent } from 'react';
 import {
   Background,
   Controls,
   MiniMap,
   Panel,
   ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
   type OnSelectionChangeParams,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { NODE_DRAG_TYPE, nodeCatalog } from '@/lib/node-catalog';
 import { useGraphStore } from '@/stores/graph-store';
+
+const GRID = 16;
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -21,7 +26,9 @@ function isTypingTarget(target: EventTarget | null) {
   );
 }
 
-export function WorkflowCanvas() {
+function Canvas() {
+  const { screenToFlowPosition } = useReactFlow();
+
   const nodes = useGraphStore((state) => state.nodes);
   const edges = useGraphStore((state) => state.edges);
   const selectedNodeIds = useGraphStore((state) => state.selectedNodeIds);
@@ -31,6 +38,7 @@ export function WorkflowCanvas() {
   const setSelection = useGraphStore((state) => state.setSelection);
   const selectAll = useGraphStore((state) => state.selectAll);
   const duplicateSelected = useGraphStore((state) => state.duplicateSelected);
+  const addNode = useGraphStore((state) => state.addNode);
 
   const handleSelectionChange = useCallback(
     ({ nodes: selected }: OnSelectionChangeParams) => {
@@ -38,6 +46,31 @@ export function WorkflowCanvas() {
     },
     [setSelection],
   );
+
+  function handleDragOver(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+
+    const type = event.dataTransfer.getData(NODE_DRAG_TYPE);
+    if (!type) return;
+
+    const item = nodeCatalog.find((entry) => entry.type === type);
+    if (!item) return;
+
+    const position = screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+    addNode(item, {
+      x: Math.round(position.x / GRID) * GRID,
+      y: Math.round(position.y / GRID) * GRID,
+    });
+  }
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -70,12 +103,14 @@ export function WorkflowCanvas() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onSelectionChange={handleSelectionChange}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
         snapToGrid
-        snapGrid={[16, 16]}
+        snapGrid={[GRID, GRID]}
         colorMode="system"
         fitView
       >
-        <Background gap={16} />
+        <Background gap={GRID} />
         <Controls />
         <MiniMap pannable zoomable />
         <Panel position="top-left">
@@ -91,5 +126,13 @@ export function WorkflowCanvas() {
         </Panel>
       </ReactFlow>
     </div>
+  );
+}
+
+export function WorkflowCanvas() {
+  return (
+    <ReactFlowProvider>
+      <Canvas />
+    </ReactFlowProvider>
   );
 }
