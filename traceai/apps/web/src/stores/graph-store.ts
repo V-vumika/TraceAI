@@ -20,6 +20,10 @@ type GraphState = {
   setSelection: (ids: string[]) => void;
   selectAll: () => void;
   duplicateSelected: () => void;
+  addNode: (
+    item: { type: string; label: string },
+    position: { x: number; y: number },
+  ) => void;
 };
 
 const initialNodes: Node[] = [
@@ -88,4 +92,17 @@ export const useGraphStore = create<GraphState>()((set) => ({
         edges: [...state.edges, ...edgeCopies],
       };
     }),
+
+  addNode: (item, position) =>
+    set((state) => ({
+      nodes: [
+        ...state.nodes.map((node) => ({ ...node, selected: false })),
+        {
+          id: crypto.randomUUID(),
+          position,
+          data: { label: item.label, nodeType: item.type },
+          selected: true,
+        },
+      ],
+    })),
 }));
