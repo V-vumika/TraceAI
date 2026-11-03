@@ -9,10 +9,13 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
+  type Connection,
+  type Edge,
   type OnSelectionChangeParams,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { WorkflowNode } from '@/components/workflow-node';
+import { getConnectionError } from '@/lib/connection-rules';
 import { NODE_DRAG_TYPE, nodeCatalog } from '@/lib/node-catalog';
 import { useGraphStore } from '@/stores/graph-store';
 
@@ -49,6 +52,12 @@ function Canvas() {
     },
     [setSelection],
   );
+
+  const isValidConnection = useCallback((connection: Connection | Edge) => {
+    const { nodes: currentNodes, edges: currentEdges } =
+      useGraphStore.getState();
+    return getConnectionError(connection, currentNodes, currentEdges) === null;
+  }, []);
 
   function handleDragOver(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -106,6 +115,7 @@ function Canvas() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        isValidConnection={isValidConnection}
         onSelectionChange={handleSelectionChange}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
