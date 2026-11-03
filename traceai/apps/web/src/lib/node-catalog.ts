@@ -58,3 +58,5 @@ export const nodeCatalog: NodeCatalogItem[] = [
     category: 'Actions',
   },
 ];
+
+export const NODE_DRAG_TYPE = 'application/traceai-node';
