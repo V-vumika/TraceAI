@@ -12,10 +12,13 @@ import {
   type OnSelectionChangeParams,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { WorkflowNode } from '@/components/workflow-node';
 import { NODE_DRAG_TYPE, nodeCatalog } from '@/lib/node-catalog';
 import { useGraphStore } from '@/stores/graph-store';
 
 const GRID = 16;
+
+const nodeTypes = { workflow: WorkflowNode };
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -99,6 +102,7 @@ function Canvas() {
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
