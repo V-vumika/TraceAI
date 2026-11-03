@@ -190,6 +190,9 @@ importers:
       '@traceai/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@traceai/nodes':
+        specifier: workspace:*
+        version: link:../../packages/nodes
       argon2:
         specifier: ^0.45.1
         version: 0.45.1
