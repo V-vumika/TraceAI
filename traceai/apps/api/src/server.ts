@@ -10,6 +10,7 @@ import { db, users, workspaces, memberships } from "@traceai/db";
 import argon2 from "argon2";
 import jwt from "jsonwebtoken";
 import fastifyCors from "@fastify/cors";
+import { nodeDefinitions } from "@traceai/nodes";
 
 // ---------------------------------------------------------------------------
 // Type augmentation (fixes TS2339 for `app.authenticate` and `request.user.sub`)
@@ -259,6 +260,16 @@ app.get(
     });
   },
 );
+
+// Node catalog
+app.get("/api/v1/nodes", async () => ({
+  nodes: nodeDefinitions.map(({ type, label, description, category }) => ({
+    type,
+    label,
+    description,
+    category,
+  })),
+}));
 
 // Signup
 app.post("/auth/signup", async (request, reply) => {
