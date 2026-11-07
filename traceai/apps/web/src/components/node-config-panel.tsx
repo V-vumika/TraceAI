@@ -2,11 +2,16 @@
 
 import { useState } from 'react';
 import type { Node } from '@xyflow/react';
-import { getNodeDefinition } from '@traceai/nodes';
+import type { ZodType } from 'zod';
+import { commonSettingsSchema, getNodeDefinition } from '@traceai/nodes';
 import { CodeEditor } from '@/components/code-editor';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { getConfigFields, type ConfigField } from '@/lib/config-fields';
+import {
+  getCommonSettingFields,
+  getConfigFields,
+  type ConfigField,
+} from '@/lib/config-fields';
 import { nodeCatalog } from '@/lib/node-catalog';
 import { useGraphStore } from '@/stores/graph-store';
 
@@ -23,6 +28,8 @@ function toInput(fields: ConfigField[], values: Values) {
     const raw = values[field.name] ?? '';
     if (field.kind === 'number') {
       input[field.name] = raw === '' ? undefined : Number(raw);
+    } else if (field.kind === 'checkbox') {
+      input[field.name] = raw === 'true';
     } else {
       input[field.name] = raw;
     }
@@ -30,14 +37,24 @@ function toInput(fields: ConfigField[], values: Values) {
   return input;
 }
 
-function NodeConfigForm({ node }: { node: Node }) {
-  const updateNodeConfig = useGraphStore((state) => state.updateNodeConfig);
+type SettingsFormProps = {
+  nodeId: string;
+  idPrefix: string;
+  fields: ConfigField[];
+  schema: ZodType | undefined;
+  saved: Record<string, unknown>;
+  onSave: (nodeId: string, value: Record<string, unknown>) => void;
+};
 
-  const nodeType = String(node.data.nodeType ?? '');
-  const fields = getConfigFields(nodeType);
-  const definition = getNodeDefinition(nodeType);
-  const saved = (node.data.config ?? {}) as Record<string, unknown>;
-
+// One form, used twice: for the node's own config and for common settings.
+function SettingsForm({
+  nodeId,
+  idPrefix,
+  fields,
+  schema,
+  saved,
+  onSave,
+}: SettingsFormProps) {
   const [values, setValues] = useState<Values>(() => {
     const initial: Values = {};
     for (const field of fields) {
@@ -52,13 +69,13 @@ function NodeConfigForm({ node }: { node: Node }) {
     const next = { ...values, [name]: value };
     setValues(next);
 
-    if (!definition) return;
+    if (!schema) return;
 
-    const result = definition.configSchema.safeParse(toInput(fields, next));
+    const result = schema.safeParse(toInput(fields, next));
 
     if (result.success) {
       setErrors({});
-      updateNodeConfig(node.id, result.data as Record<string, unknown>);
+      onSave(nodeId, result.data as Record<string, unknown>);
       return;
     }
 
@@ -79,7 +96,7 @@ function NodeConfigForm({ node }: { node: Node }) {
   return (
     <div className="space-y-4">
       {fields.map((field) => {
-        const id = `config-${field.name}`;
+        const id = `${idPrefix}-${field.name}`;
         const value = values[field.name] ?? '';
 
         return (
@@ -131,6 +148,21 @@ function NodeConfigForm({ node }: { node: Node }) {
               />
             )}
 
+            {field.kind === 'checkbox' && (
+              <div className="flex items-center gap-2">
+                <input
+                  id={id}
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={value === 'true'}
+                  onChange={(event) =>
+                    handleChange(field.name, String(event.target.checked))
+                  }
+                />
+                <span className="text-sm">Enabled</span>
+              </div>
+            )}
+
             {field.kind === 'number' && (
               <Input
                 id={id}
@@ -160,6 +192,47 @@ function NodeConfigForm({ node }: { node: Node }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function NodeForms({ node }: { node: Node }) {
+  const updateNodeConfig = useGraphStore((state) => state.updateNodeConfig);
+  const updateNodeSettings = useGraphStore((state) => state.updateNodeSettings);
+
+  const nodeType = String(node.data.nodeType ?? '');
+  const item = nodeCatalog.find((entry) => entry.type === nodeType);
+  const isTrigger = item?.category === 'Triggers';
+  const definition = getNodeDefinition(nodeType);
+
+  return (
+    <div className="space-y-6">
+      <SettingsForm
+        key={`${node.id}-config`}
+        nodeId={node.id}
+        idPrefix="config"
+        fields={getConfigFields(nodeType)}
+        schema={definition?.configSchema}
+        saved={(node.data.config ?? {}) as Record<string, unknown>}
+        onSave={updateNodeConfig}
+      />
+
+      {!isTrigger && (
+        <section className="space-y-4 border-t pt-4">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Common settings
+          </h3>
+          <SettingsForm
+            key={`${node.id}-common`}
+            nodeId={node.id}
+            idPrefix="common"
+            fields={getCommonSettingFields()}
+            schema={commonSettingsSchema}
+            saved={(node.data.settings ?? {}) as Record<string, unknown>}
+            onSave={updateNodeSettings}
+          />
+        </section>
+      )}
     </div>
   );
 }
@@ -206,7 +279,7 @@ export function NodeConfigPanel() {
           <p className="text-sm text-muted-foreground">{item.description}</p>
         )}
 
-        <NodeConfigForm key={selectedNode.id} node={selectedNode} />
+        <NodeForms node={selectedNode} />
 
         <p className="text-xs text-muted-foreground">ID: {selectedNode.id}</p>
       </div>
