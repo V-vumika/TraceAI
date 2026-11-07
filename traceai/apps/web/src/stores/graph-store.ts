@@ -123,10 +123,19 @@ export const useGraphStore = create<GraphState>()((set) => ({
       ],
     })),
 
-  updateNodeConfig: (nodeId, config) =>
-    set((state) => ({
-      nodes: state.nodes.map((node) =>
-        node.id === nodeId ? { ...node, data: { ...node.data, config } } : node,
-      ),
-    })),
-}));
+    updateNodeConfig: (nodeId, config) =>
+      set((state) => ({
+        nodes: state.nodes.map((node) =>
+          node.id === nodeId ? { ...node, data: { ...node.data, config } } : node,
+        ),
+      })),
+  
+    updateNodeSettings: (nodeId, settings) =>
+      set((state) => ({
+        nodes: state.nodes.map((node) =>
+          node.id === nodeId
+            ? { ...node, data: { ...node.data, settings } }
+            : node,
+        ),
+      })),
+  }));
