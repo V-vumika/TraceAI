@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { Node } from '@xyflow/react';
 import { getNodeDefinition } from '@traceai/nodes';
+import { CodeEditor } from '@/components/code-editor';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getConfigFields, type ConfigField } from '@/lib/config-fields';
@@ -119,6 +120,14 @@ function NodeConfigForm({ node }: { node: Node }) {
                 onChange={(event) =>
                   handleChange(field.name, event.target.value)
                 }
+              />
+            )}
+
+            {field.kind === 'code' && (
+              <CodeEditor
+                value={value}
+                language={field.language ?? 'javascript'}
+                onChange={(next) => handleChange(field.name, next)}
               />
             )}
 
