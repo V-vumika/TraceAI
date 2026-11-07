@@ -1,11 +1,14 @@
 import { z } from 'zod';
 import { getNodeDefinition } from '@traceai/nodes';
 
+export type CodeLanguage = 'javascript' | 'json';
+
 export type ConfigField = {
   name: string;
   label: string;
   description: string;
-  kind: 'text' | 'textarea' | 'number' | 'select';
+  kind: 'text' | 'textarea' | 'number' | 'select' | 'code';
+  language: CodeLanguage | undefined;
   options: string[];
   defaultValue: string | number | undefined;
   min: number | undefined;
@@ -26,7 +29,12 @@ type JsonObjectSchema = {
   properties?: Record<string, JsonProperty>;
 };
 
-const TEXTAREA_FIELDS = new Set(['prompt', 'body', 'code', 'headers']);
+const TEXTAREA_FIELDS = new Set(['prompt', 'body']);
+
+const CODE_LANGUAGES = new Map<string, CodeLanguage>([
+  ['code', 'javascript'],
+  ['headers', 'json'],
+]);
 
 // "maxTokens" -> "Max Tokens"
 function toLabel(name: string) {
@@ -37,6 +45,7 @@ function toLabel(name: string) {
 function getKind(name: string, property: JsonProperty): ConfigField['kind'] {
   if (property.enum) return 'select';
   if (property.type === 'number' || property.type === 'integer') return 'number';
+  if (CODE_LANGUAGES.has(name)) return 'code';
   if (TEXTAREA_FIELDS.has(name)) return 'textarea';
   return 'text';
 }
@@ -56,6 +65,7 @@ export function getConfigFields(nodeType: string): ConfigField[] {
     label: toLabel(name),
     description: property.description ?? '',
     kind: getKind(name, property),
+    language: CODE_LANGUAGES.get(name),
     options: property.enum ?? [],
     defaultValue: property.default,
     min: property.minimum,
