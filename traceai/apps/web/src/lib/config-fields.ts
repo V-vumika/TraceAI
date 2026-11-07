@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { getNodeDefinition } from '@traceai/nodes';
+import { commonSettingsSchema, getNodeDefinition } from '@traceai/nodes';
 
 export type CodeLanguage = 'javascript' | 'json';
 
@@ -7,10 +7,10 @@ export type ConfigField = {
   name: string;
   label: string;
   description: string;
-  kind: 'text' | 'textarea' | 'number' | 'select' | 'code';
+  kind: 'text' | 'textarea' | 'number' | 'select' | 'code' | 'checkbox';
   language: CodeLanguage | undefined;
   options: string[];
-  defaultValue: string | number | undefined;
+  defaultValue: string | number | boolean | undefined;
   min: number | undefined;
   max: number | undefined;
   required: boolean;
@@ -19,7 +19,7 @@ export type ConfigField = {
 type JsonProperty = {
   type?: string;
   enum?: string[];
-  default?: string | number;
+  default?: string | number | boolean;
   description?: string;
   minimum?: number;
   maximum?: number;
@@ -44,20 +44,16 @@ function toLabel(name: string) {
 
 function getKind(name: string, property: JsonProperty): ConfigField['kind'] {
   if (property.enum) return 'select';
+  if (property.type === 'boolean') return 'checkbox';
   if (property.type === 'number' || property.type === 'integer') return 'number';
   if (CODE_LANGUAGES.has(name)) return 'code';
   if (TEXTAREA_FIELDS.has(name)) return 'textarea';
   return 'text';
 }
 
-export function getConfigFields(nodeType: string): ConfigField[] {
-  const definition = getNodeDefinition(nodeType);
-  if (!definition) return [];
-
-  const jsonSchema = z.toJSONSchema(
-    definition.configSchema,
-  ) as unknown as JsonObjectSchema;
-
+// Works for any Zod object schema: node config or common settings.
+export function getSchemaFields(schema: z.ZodType): ConfigField[] {
+  const jsonSchema = z.toJSONSchema(schema) as unknown as JsonObjectSchema;
   const properties = jsonSchema.properties ?? {};
 
   return Object.entries(properties).map(([name, property]) => ({
@@ -72,4 +68,13 @@ export function getConfigFields(nodeType: string): ConfigField[] {
     max: property.maximum,
     required: property.default === undefined,
   }));
+}
+
+export function getConfigFields(nodeType: string): ConfigField[] {
+  const definition = getNodeDefinition(nodeType);
+  return definition ? getSchemaFields(definition.configSchema) : [];
+}
+
+export function getCommonSettingFields(): ConfigField[] {
+  return getSchemaFields(commonSettingsSchema);
 }
