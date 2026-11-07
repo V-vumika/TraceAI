@@ -24,6 +24,7 @@ type GraphState = {
     item: { type: string; label: string },
     position: { x: number; y: number },
   ) => void;
+  updateNodeConfig: (nodeId: string, config: Record<string, unknown>) => void;
 };
 
 const initialNodes: Node[] = [
@@ -120,5 +121,12 @@ export const useGraphStore = create<GraphState>()((set) => ({
           selected: true,
         },
       ],
+    })),
+
+  updateNodeConfig: (nodeId, config) =>
+    set((state) => ({
+      nodes: state.nodes.map((node) =>
+        node.id === nodeId ? { ...node, data: { ...node.data, config } } : node,
+      ),
     })),
 }));
