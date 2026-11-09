@@ -7,7 +7,8 @@ export type ConfigField = {
   name: string;
   label: string;
   description: string;
-  kind: 'text' | 'textarea' | 'number' | 'select' | 'code' | 'checkbox';
+  kind: 'text' | 'expression' | 'number' | 'select' | 'code' | 'checkbox';
+  multiline: boolean;
   language: CodeLanguage | undefined;
   options: string[];
   defaultValue: string | number | boolean | undefined;
@@ -29,7 +30,11 @@ type JsonObjectSchema = {
   properties?: Record<string, JsonProperty>;
 };
 
-const TEXTAREA_FIELDS = new Set(['prompt', 'body']);
+// Fields where the user can write {{ }} expressions.
+const EXPRESSION_FIELDS = new Set(['prompt', 'url', 'body', 'expression']);
+
+// Of those, the ones that need more than one line.
+const MULTILINE_FIELDS = new Set(['prompt', 'body']);
 
 const CODE_LANGUAGES = new Map<string, CodeLanguage>([
   ['code', 'javascript'],
@@ -47,7 +52,7 @@ function getKind(name: string, property: JsonProperty): ConfigField['kind'] {
   if (property.type === 'boolean') return 'checkbox';
   if (property.type === 'number' || property.type === 'integer') return 'number';
   if (CODE_LANGUAGES.has(name)) return 'code';
-  if (TEXTAREA_FIELDS.has(name)) return 'textarea';
+  if (EXPRESSION_FIELDS.has(name)) return 'expression';
   return 'text';
 }
 
@@ -61,6 +66,7 @@ export function getSchemaFields(schema: z.ZodType): ConfigField[] {
     label: toLabel(name),
     description: property.description ?? '',
     kind: getKind(name, property),
+    multiline: MULTILINE_FIELDS.has(name),
     language: CODE_LANGUAGES.get(name),
     options: property.enum ?? [],
     defaultValue: property.default,
