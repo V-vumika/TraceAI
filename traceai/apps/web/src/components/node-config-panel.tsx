@@ -5,6 +5,7 @@ import type { Node } from '@xyflow/react';
 import type { ZodType } from 'zod';
 import { commonSettingsSchema, getNodeDefinition } from '@traceai/nodes';
 import { CodeEditor } from '@/components/code-editor';
+import { ExpressionEditor } from '@/components/expression-editor';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -129,14 +130,11 @@ function SettingsForm({
               </select>
             )}
 
-            {field.kind === 'textarea' && (
-              <textarea
-                id={id}
-                className={`${controlClass} min-h-28`}
+            {field.kind === 'expression' && (
+              <ExpressionEditor
                 value={value}
-                onChange={(event) =>
-                  handleChange(field.name, event.target.value)
-                }
+                multiline={field.multiline}
+                onChange={(next) => handleChange(field.name, next)}
               />
             )}
 
