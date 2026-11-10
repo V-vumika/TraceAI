@@ -1,8 +1,10 @@
 'use client';
 
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
+import { getNodeProblemText } from '@/lib/graph-problems';
 import { nodeCatalog } from '@/lib/node-catalog';
 import { cn } from '@/lib/utils';
+import { useGraphStore } from '@/stores/graph-store';
 
 export type NodeStatus = 'idle' | 'running' | 'success' | 'error';
 
@@ -23,17 +25,36 @@ const statusStyles: Record<NodeStatus, string> = {
 
 const handleStyle = { width: 10, height: 10 };
 
-export function WorkflowNode({ data, selected }: NodeProps<WorkflowNodeType>) {
+export function WorkflowNode({
+  id,
+  data,
+  selected,
+}: NodeProps<WorkflowNodeType>) {
+  const problemText = useGraphStore((state) =>
+    getNodeProblemText(state.nodes, state.edges, id),
+  );
+  const hasProblems = problemText !== '';
+
   const item = nodeCatalog.find((entry) => entry.type === data.nodeType);
   const isTrigger = item?.category === 'Triggers';
 
   return (
     <div
       className={cn(
-        'min-w-[170px] rounded-lg border bg-card px-3 py-2 shadow-sm',
+        'relative min-w-[170px] rounded-lg border bg-card px-3 py-2 shadow-sm',
+        hasProblems && 'border-red-500',
         selected && 'ring-2 ring-primary',
       )}
     >
+      {hasProblems && (
+        <span
+          title={problemText}
+          className="absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-xs font-semibold text-white"
+        >
+          {problemText.split('\n').length}
+        </span>
+      )}
+
       {!isTrigger && (
         <Handle type="target" position={Position.Left} style={handleStyle} />
       )}
@@ -46,7 +67,10 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowNodeType>) {
           </p>
         </div>
         <span
-          className={cn('rounded-full px-2 py-0.5 text-xs', statusStyles[data.status])}
+          className={cn(
+            'rounded-full px-2 py-0.5 text-xs',
+            statusStyles[data.status],
+          )}
         >
           {data.status}
         </span>
