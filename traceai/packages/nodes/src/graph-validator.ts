@@ -193,11 +193,10 @@ function checkNodeConfig(node: GraphNode): GraphProblem[] {
   const result = definition.configSchema.safeParse(config);
   if (!result.success) {
     for (const issue of result.error.issues) {
-      const field = issue.path.join('.') || 'config';
-      const message = issue.message.includes('received undefined')
-        ? 'is required'
-        : issue.message;
-
+        const field = issue.path.join('.') || 'config';
+        const value = config[String(issue.path[0] ?? '')];
+        const message =
+          value === undefined || value === '' ? 'is required' : issue.message;
       problems.push({
         code: 'invalid-config',
         message: `${field}: ${message}`,
