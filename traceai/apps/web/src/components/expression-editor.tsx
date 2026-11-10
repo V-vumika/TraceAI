@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from 'react';
 import Editor, { type Monaco } from '@monaco-editor/react';
+import type { editor as MonacoEditor, Position } from 'monaco-editor';
 import { expressionFunctions, expressionVariables } from '@traceai/nodes';
 
 const LANGUAGE_ID = 'traceai-expr';
@@ -25,7 +26,7 @@ function getServerSnapshot() {
 function registerExpressionLanguage(monaco: Monaco) {
   const alreadyDone = monaco.languages
     .getLanguages()
-    .some((language) => language.id === LANGUAGE_ID);
+    .some((language: { id: string }) => language.id === LANGUAGE_ID);
   if (alreadyDone) return;
 
   monaco.languages.register({ id: LANGUAGE_ID });
@@ -67,7 +68,7 @@ function registerExpressionLanguage(monaco: Monaco) {
   // The suggestion list. Only shows when the cursor is inside {{ }}.
   monaco.languages.registerCompletionItemProvider(LANGUAGE_ID, {
     triggerCharacters: ['{'],
-    provideCompletionItems(model, position) {
+    provideCompletionItems(model: MonacoEditor.ITextModel, position: Position) {
       const textBefore = model.getValueInRange({
         startLineNumber: 1,
         startColumn: 1,
