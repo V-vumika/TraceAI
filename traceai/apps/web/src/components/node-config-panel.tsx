@@ -72,13 +72,18 @@ function SettingsForm({
 
     if (!schema) return;
 
-    const result = schema.safeParse(toInput(fields, next));
+    // Always save what the user typed, even when it is not valid yet.
+    // The validator reads it from the store and shows the red badge.
+    const input = toInput(fields, next);
+    const result = schema.safeParse(input);
 
     if (result.success) {
       setErrors({});
       onSave(nodeId, result.data as Record<string, unknown>);
       return;
     }
+
+    onSave(nodeId, input);
 
     const nextErrors: Errors = {};
     for (const issue of result.error.issues) {
