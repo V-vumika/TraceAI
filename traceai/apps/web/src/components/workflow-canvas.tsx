@@ -14,6 +14,7 @@ import {
   type OnSelectionChangeParams,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { ProblemsList } from '@/components/problems-list';
 import { WorkflowNode } from '@/components/workflow-node';
 import { getConnectionError } from '@traceai/nodes';
 import { NODE_DRAG_TYPE, nodeCatalog } from '@/lib/node-catalog';
@@ -127,6 +128,7 @@ function Canvas() {
         <Background gap={GRID} />
         <Controls />
         <MiniMap pannable zoomable />
+        <ProblemsList />
         <Panel position="top-left">
           <div className="space-y-1 rounded-md border bg-background px-3 py-2 text-sm">
             <p>
