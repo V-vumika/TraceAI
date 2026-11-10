@@ -15,7 +15,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { WorkflowNode } from '@/components/workflow-node';
-import { getConnectionError } from '@/lib/connection-rules';
+import { getConnectionError } from '@traceai/nodes';
 import { NODE_DRAG_TYPE, nodeCatalog } from '@/lib/node-catalog';
 import { useGraphStore } from '@/stores/graph-store';
 
