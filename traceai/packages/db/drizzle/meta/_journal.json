@@ -36,6 +36,13 @@
       "when": 1792260484470,
       "tag": "0004_left_mikhail_rasputin",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794314579160,
+      "tag": "0005_nappy_rockslide",
+      "breakpoints": true
     }
   ]
 }

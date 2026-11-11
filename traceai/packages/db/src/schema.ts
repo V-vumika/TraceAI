@@ -45,6 +45,7 @@ import {
   name: text("name").notNull(),
   description: text("description"),
   definition: jsonb("definition").notNull(),
+  draftGraph: jsonb("draft_graph"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   });
