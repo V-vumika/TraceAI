@@ -6,7 +6,7 @@ import { config } from "dotenv";
 import path from "node:path";
 import fastifyJwt from "@fastify/jwt";
 import fastifyCookie from "@fastify/cookie";
-import { db, users, workspaces, memberships } from "@traceai/db";
+import { db, users, workspaces, memberships, workflows } from "@traceai/db";
 import argon2 from "argon2";
 import jwt from "jsonwebtoken";
 import fastifyCors from "@fastify/cors";
@@ -73,6 +73,14 @@ const createWorkspaceSchema = z.object({
   name: z.string().trim().min(2).max(100),
 });
 
+const uuidSchema = z.uuid();
+
+const createWorkflowSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+  description: z.string().trim().max(500).optional(),
+});
+
+const emptyGraph = { nodes: [], edges: [] };
 // ---------------------------------------------------------------------------
 // App setup
 // ---------------------------------------------------------------------------
@@ -257,6 +265,59 @@ app.get(
       workspaceId,
       role: membership.role,
       access: true,
+    });
+  },
+);
+// Create workflow
+app.post(
+  "/workspaces/:workspaceId/workflows",
+  { preHandler: (request, reply) => app.authenticate(request, reply) },
+  async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+
+    if (!uuidSchema.safeParse(workspaceId).success) {
+      return reply.status(400).send({ error: "Invalid workspace id." });
+    }
+
+    const userId = request.user.sub;
+
+    const membership = await requireWorkspaceRole(userId, workspaceId, [
+      "owner",
+      "member",
+    ]);
+
+    if (!membership) {
+      return reply.status(403).send({
+        error: "You are not a member of this workspace.",
+      });
+    }
+
+    const parsed = createWorkflowSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: "Invalid workflow details",
+        details: parsed.error.issues.map((issue) => ({
+          field: issue.path.join("."),
+          message: issue.message,
+        })),
+      });
+    }
+
+    const [workflow] = await db
+      .insert(workflows)
+      .values({
+        workspaceId,
+        name: parsed.data.name,
+        description: parsed.data.description,
+        definition: emptyGraph,
+        draftGraph: emptyGraph,
+      })
+      .returning();
+
+    return reply.status(201).send({
+      message: "Workflow created successfully.",
+      workflow,
     });
   },
 );
