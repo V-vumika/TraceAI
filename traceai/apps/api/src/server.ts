@@ -81,6 +81,29 @@ const createWorkflowSchema = z.object({
 });
 
 const emptyGraph = { nodes: [], edges: [] };
+const graphSchema = z.object({
+  nodes: z
+    .array(
+      z.looseObject({
+        id: z.string().min(1),
+        position: z.object({ x: z.number(), y: z.number() }),
+        data: z.record(z.string(), z.unknown()),
+      }),
+    )
+    .max(500),
+  edges: z
+    .array(
+      z.looseObject({
+        id: z.string().min(1),
+        source: z.string().min(1),
+        target: z.string().min(1),
+      }),
+    )
+    .max(2000),
+});
+
+const saveDraftSchema = z.object({ graph: graphSchema });
+
 // ---------------------------------------------------------------------------
 // App setup
 // ---------------------------------------------------------------------------
@@ -268,6 +291,84 @@ app.get(
     });
   },
 );
+
+// Finds a workflow and checks that the user may see it.
+// Returns null for both "not found" and "not a member",
+// so we never reveal that a workflow exists.
+async function getWorkflowForUser(userId: string, workflowId: string) {
+  const workflow = await db.query.workflows.findFirst({
+    where: eq(workflows.id, workflowId),
+  });
+  if (!workflow) return null;
+
+  const membership = await requireWorkspaceRole(userId, workflow.workspaceId, [
+    "owner",
+    "member",
+  ]);
+
+  return membership ? workflow : null;
+}
+
+// Get one workflow
+app.get(
+  "/workflows/:workflowId",
+  { preHandler: (request, reply) => app.authenticate(request, reply) },
+  async (request, reply) => {
+    const { workflowId } = request.params as { workflowId: string };
+
+    if (!uuidSchema.safeParse(workflowId).success) {
+      return reply.status(400).send({ error: "Invalid workflow id." });
+    }
+
+    const workflow = await getWorkflowForUser(request.user.sub, workflowId);
+
+    if (!workflow) {
+      return reply.status(404).send({ error: "Workflow not found." });
+    }
+
+    return reply.send({ workflow });
+  },
+);
+
+// Save the draft graph (autosave)
+app.patch(
+  "/workflows/:workflowId/draft",
+  { preHandler: (request, reply) => app.authenticate(request, reply) },
+  async (request, reply) => {
+    const { workflowId } = request.params as { workflowId: string };
+
+    if (!uuidSchema.safeParse(workflowId).success) {
+      return reply.status(400).send({ error: "Invalid workflow id." });
+    }
+
+    const workflow = await getWorkflowForUser(request.user.sub, workflowId);
+
+    if (!workflow) {
+      return reply.status(404).send({ error: "Workflow not found." });
+    }
+
+    const parsed = saveDraftSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: "Invalid graph",
+        details: parsed.error.issues.map((issue) => ({
+          field: issue.path.join("."),
+          message: issue.message,
+        })),
+      });
+    }
+
+    const [updated] = await db
+      .update(workflows)
+      .set({ draftGraph: parsed.data.graph, updatedAt: new Date() })
+      .where(eq(workflows.id, workflowId))
+      .returning({ id: workflows.id, updatedAt: workflows.updatedAt });
+
+    return reply.send({ id: updated?.id, updatedAt: updated?.updatedAt });
+  },
+);
+
 // Create workflow
 app.post(
   "/workspaces/:workspaceId/workflows",
