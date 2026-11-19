@@ -1,6 +1,6 @@
 import Fastify, { FastifyReply, FastifyRequest } from "fastify";
 import { STATUS_CODES } from "node:http";
-import { eq, and } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { config } from "dotenv";
 import path from "node:path";
@@ -366,6 +366,63 @@ app.patch(
       .returning({ id: workflows.id, updatedAt: workflows.updatedAt });
 
     return reply.send({ id: updated?.id, updatedAt: updated?.updatedAt });
+  },
+);
+
+// List the workspaces of the logged-in user
+app.get(
+  "/workspaces",
+  { preHandler: (request, reply) => app.authenticate(request, reply) },
+  async (request) => {
+    const rows = await db
+      .select({
+        id: workspaces.id,
+        name: workspaces.name,
+        role: memberships.role,
+      })
+      .from(memberships)
+      .innerJoin(workspaces, eq(memberships.workspaceId, workspaces.id))
+      .where(eq(memberships.userId, request.user.sub));
+
+    return { workspaces: rows };
+  },
+);
+
+// List the workflows of a workspace
+app.get(
+  "/workspaces/:workspaceId/workflows",
+  { preHandler: (request, reply) => app.authenticate(request, reply) },
+  async (request, reply) => {
+    const { workspaceId } = request.params as { workspaceId: string };
+
+    if (!uuidSchema.safeParse(workspaceId).success) {
+      return reply.status(400).send({ error: "Invalid workspace id." });
+    }
+
+    const membership = await requireWorkspaceRole(
+      request.user.sub,
+      workspaceId,
+      ["owner", "member"],
+    );
+
+    if (!membership) {
+      return reply.status(403).send({
+        error: "You are not a member of this workspace.",
+      });
+    }
+
+    const rows = await db
+      .select({
+        id: workflows.id,
+        name: workflows.name,
+        description: workflows.description,
+        updatedAt: workflows.updatedAt,
+      })
+      .from(workflows)
+      .where(eq(workflows.workspaceId, workspaceId))
+      .orderBy(desc(workflows.updatedAt));
+
+    return reply.send({ workflows: rows });
   },
 );
 
