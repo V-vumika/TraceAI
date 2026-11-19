@@ -29,7 +29,9 @@ type GraphState = {
     nodeId: string,
     settings: Record<string, unknown>,
   ) => void;
+  loadGraph: (nodes: Node[], edges: Edge[]) => void;
 };
+
 const initialNodes: Node[] = [
   {
     id: '1',
@@ -126,19 +128,21 @@ export const useGraphStore = create<GraphState>()((set) => ({
       ],
     })),
 
-    updateNodeConfig: (nodeId, config) =>
-      set((state) => ({
-        nodes: state.nodes.map((node) =>
-          node.id === nodeId ? { ...node, data: { ...node.data, config } } : node,
-        ),
-      })),
-  
-      updateNodeSettings: (nodeId, settings) =>
-        set((state) => ({
-          nodes: state.nodes.map((node) =>
-            node.id === nodeId
-              ? { ...node, data: { ...node.data, settings } }
-              : node,
-          ),
-      })),
-  }));
+  updateNodeConfig: (nodeId, config) =>
+    set((state) => ({
+      nodes: state.nodes.map((node) =>
+        node.id === nodeId ? { ...node, data: { ...node.data, config } } : node,
+      ),
+    })),
+
+  updateNodeSettings: (nodeId, settings) =>
+    set((state) => ({
+      nodes: state.nodes.map((node) =>
+        node.id === nodeId
+          ? { ...node, data: { ...node.data, settings } }
+          : node,
+      ),
+    })),
+
+  loadGraph: (nodes, edges) => set({ nodes, edges, selectedNodeIds: [] }),
+}));
