@@ -48,3 +48,7 @@ apps/api/src/*.js
 packages/db/src/*.js
 
 .turbo
+
+dist
+.vscode
+
