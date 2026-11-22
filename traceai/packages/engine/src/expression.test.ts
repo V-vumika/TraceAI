@@ -33,6 +33,22 @@ describe('resolveTemplate', () => {
     expect(resolveTemplate('{{ nodes["classify-1"].output.category }}', context)).toBe('billing');
   });
 
+  it('uses a quoted key with punctuation as one path segment', () => {
+    const input = { 'customer.name, "preferred"': 'Ada' };
+    const template = '{{ input["customer.name, \\"preferred\\""] }}';
+
+    expect(resolveTemplate(template, { ...context, input })).toBe('Ada');
+  });
+
+  it('keeps expression-like data literal in standalone and mixed templates', () => {
+    const input = { text: '{{ trigger.body.id }}' };
+
+    expect(resolveTemplate('{{ input.text }}', { ...context, input })).toBe(input.text);
+    expect(resolveTemplate('Message: {{ input.text }}', { ...context, input })).toBe(
+      'Message: {{ trigger.body.id }}',
+    );
+  });
+
   it.each(['input.absent', 'input.items[1].name', 'trigger.body.optional.id'])(
     'fails safely for missing path %s',
     (path) => {
@@ -156,6 +172,40 @@ describe('whitelisted expression functions', () => {
     expect(getter).not.toHaveBeenCalled();
     expect(toJSON).not.toHaveBeenCalled();
     expect(ownKeys).not.toHaveBeenCalled();
+  });
+
+  it('does not read a fallback when the first value is present', () => {
+    const getter = vi.fn(() => 'fallback');
+    const input = { name: 'Ada' };
+    Object.defineProperty(input, 'fallback', { get: getter });
+
+    expect(
+      resolveTemplate('{{ default(input.name, input.fallback) }}', { ...context, input }),
+    ).toBe('Ada');
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it('serializes repeated references and sparse array slots as JSON data', () => {
+    const shared = { count: 1 };
+    const entries = [shared];
+    entries[2] = shared;
+    const input = { entries };
+
+    expect(resolveTemplate('{{ json(input) }}', { ...context, input })).toBe(
+      '{"entries":[{"count":1},null,{"count":1}]}',
+    );
+  });
+
+  it('rejects deeply nested function calls with a resolver error', () => {
+    const depth = 100;
+    const template = '{{ ' + 'upper('.repeat(depth) + 'input.name' + ')'.repeat(depth) + ' }}';
+
+    expect(() => resolveTemplate(template, context)).toThrow(
+      expect.objectContaining({
+        name: 'ExpressionResolutionError',
+        message: 'Expression is nested too deeply.',
+      }),
+    );
   });
 
   it('rejects circular JSON data', () => {
