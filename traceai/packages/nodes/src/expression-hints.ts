@@ -14,6 +14,7 @@ export type ExpressionVariable = {
   export const expressionVariables: ExpressionVariable[] = [
     { name: 'input', description: 'Output of the previous node' },
     { name: 'trigger', description: 'Data the run was started with' },
+    { name: 'nodes', description: 'Outputs of upstream nodes by node ID' },
   ];
   
   export const expressionFunctions: ExpressionFunction[] = [

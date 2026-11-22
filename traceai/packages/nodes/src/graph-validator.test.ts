@@ -72,7 +72,7 @@ describe('validateGraph', () => {
       nodes: [
         node('t', 'manual-trigger'),
         node('a', 'llm', {
-          prompt: "{{ upper(input) }} {{ input.name }} {{ default(input, 'foo') }}",
+          prompt: "{{ upper(input) }} {{ input.name }} {{ nodes.classify.output.category }} {{ default(input, 'foo') }}",
         }),
       ],
       edges: [edge('t', 'a')],
