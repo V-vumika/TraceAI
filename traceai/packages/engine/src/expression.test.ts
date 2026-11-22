@@ -166,3 +166,37 @@ describe('whitelisted expression functions', () => {
     );
   });
 });
+
+describe('expression error location', () => {
+  const location = { nodeId: 'classify-1', path: 'config.messages[0].content' };
+
+  it.each([
+    ['{{ input.missing }}', 'Expression path has no value.'],
+    ['{{ input.name', 'Unmatched expression delimiter.'],
+    ['Prefix: {{ input.items }}', 'Only scalar values can be interpolated into text.'],
+  ])('identifies the node and field when %s fails', (template, reason) => {
+    const resolve = () => resolveTemplate(template, context, location);
+
+    expect(resolve).toThrow(ExpressionResolutionError);
+    expect(resolve).toThrow(
+      expect.objectContaining({
+        ...location,
+        code: 'expression-error',
+        retryable: false,
+        message: 'Node "classify-1", field "config.messages[0].content": ' + reason,
+        cause: expect.any(ExpressionResolutionError),
+      }),
+    );
+  });
+
+  it('preserves the original message when no location is supplied', () => {
+    expect(() => resolveTemplate('{{ input.missing }}', context)).toThrow(
+      expect.objectContaining({
+        message: 'Expression path has no value.',
+        nodeId: undefined,
+        path: undefined,
+      }),
+    );
+    expect(resolveTemplate('{{ input.count }}', context, location)).toBe(0);
+  });
+});

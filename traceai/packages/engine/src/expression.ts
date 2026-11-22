@@ -1,14 +1,33 @@
 import { types } from 'node:util';
-import type { ExecContext } from './types';
+import type { ExecContext, StepError } from './types';
 
 export type ExpressionContext = Pick<ExecContext, 'input' | 'trigger'> & {
   nodes?: Readonly<Record<string, { readonly output: unknown }>>;
 };
 
-export class ExpressionResolutionError extends Error {
-  constructor(message: string) {
-    super(message);
+export type ExpressionLocation = {
+  nodeId: string;
+  path: string;
+};
+
+export class ExpressionResolutionError extends Error implements StepError {
+  readonly code = 'expression-error';
+  readonly retryable = false;
+  readonly nodeId: string | undefined;
+  readonly path: string | undefined;
+
+  constructor(message: string, location?: ExpressionLocation, options?: ErrorOptions) {
+    const prefix = location
+      ? 'Node ' +
+        JSON.stringify(location.nodeId) +
+        ', field ' +
+        JSON.stringify(location.path) +
+        ': '
+      : '';
+    super(prefix + message, options);
     this.name = 'ExpressionResolutionError';
+    this.nodeId = location?.nodeId;
+    this.path = location?.path;
   }
 }
 
@@ -227,8 +246,24 @@ function evaluate(expression: Expression, context: ExpressionContext): unknown {
   return expression.name === 'upper' ? value.toUpperCase() : value.toLowerCase();
 }
 
+/** Resolves a template and attaches its config location to any resolver error. */
+export function resolveTemplate(
+  template: string,
+  context: ExpressionContext,
+  location?: ExpressionLocation,
+): unknown {
+  if (!location) return resolveTemplateValue(template, context);
+
+  try {
+    return resolveTemplateValue(template, context);
+  } catch (error) {
+    if (!(error instanceof ExpressionResolutionError)) throw error;
+    throw new ExpressionResolutionError(error.message, location, { cause: error });
+  }
+}
+
 /** A standalone expression preserves its value type. Text only interpolates scalars. */
-export function resolveTemplate(template: string, context: ExpressionContext): unknown {
+function resolveTemplateValue(template: string, context: ExpressionContext): unknown {
   let text = '';
   let cursor = 0;
 
