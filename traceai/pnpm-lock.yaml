@@ -190,6 +190,9 @@ importers:
       '@traceai/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@traceai/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
       '@traceai/nodes':
         specifier: workspace:*
         version: link:../../packages/nodes

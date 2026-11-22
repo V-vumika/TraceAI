@@ -6,7 +6,16 @@ import { config } from "dotenv";
 import path from "node:path";
 import fastifyJwt from "@fastify/jwt";
 import fastifyCookie from "@fastify/cookie";
-import { db, users, workspaces, memberships, workflows } from "@traceai/db";
+import {
+  db,
+  users,
+  workspaces,
+  memberships,
+  workflows,
+  workflowVersions,
+} from "@traceai/db";
+import { GraphCompilationError } from "@traceai/engine";
+import { persistRun } from "./runs";
 import argon2 from "argon2";
 import jwt from "jsonwebtoken";
 import fastifyCors from "@fastify/cors";
@@ -103,6 +112,7 @@ const graphSchema = z.object({
 });
 
 const saveDraftSchema = z.object({ graph: graphSchema });
+const createRunSchema = z.object({ versionId: uuidSchema, input: z.json() });
 
 // ---------------------------------------------------------------------------
 // App setup
@@ -327,6 +337,66 @@ app.get(
     }
 
     return reply.send({ workflow });
+  },
+);
+
+// Create a run from an existing immutable version.
+app.post(
+  "/api/v1/workflows/:workflowId/runs",
+  { preHandler: (request, reply) => app.authenticate(request, reply) },
+  async (request, reply) => {
+    const { workflowId } = request.params as { workflowId: string };
+    const parsed = createRunSchema.safeParse(request.body);
+
+    if (!uuidSchema.safeParse(workflowId).success || !parsed.success) {
+      return reply
+        .status(400)
+        .type("application/problem+json")
+        .send(
+          problem(400, "A valid workflow ID, versionId and JSON input are required.", request.url),
+        );
+    }
+
+    const workflow = await getWorkflowForUser(request.user.sub, workflowId);
+    if (!workflow) {
+      return reply
+        .status(404)
+        .type("application/problem+json")
+        .send(problem(404, "Workflow not found.", request.url));
+    }
+
+    const { versionId, input } = parsed.data;
+    const version = await db.query.workflowVersions.findFirst({
+      where: and(
+        eq(workflowVersions.id, versionId),
+        eq(workflowVersions.workflowId, workflow.id),
+      ),
+    });
+    if (!version) {
+      return reply
+        .status(404)
+        .type("application/problem+json")
+        .send(problem(404, "Workflow version not found.", request.url));
+    }
+
+    const graph = graphSchema.safeParse(version.definition);
+    if (!graph.success) {
+      return reply
+        .status(422)
+        .type("application/problem+json")
+        .send(problem(422, "The workflow version has an invalid graph.", request.url));
+    }
+
+    try {
+      const runId = await persistRun(workflow.id, version.id, graph.data, input);
+      return reply.status(202).send({ runId });
+    } catch (error) {
+      if (!(error instanceof GraphCompilationError)) throw error;
+      return reply
+        .status(422)
+        .type("application/problem+json")
+        .send({ ...problem(422, error.message, request.url), problems: error.problems });
+    }
   },
 );
 

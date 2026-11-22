@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
+import { db, stepRuns, workflowRuns, workflowVersions } from "@traceai/db";
 import { app } from "./server";
+import { persistRun } from "./runs";
 
 const password = "TestPass123!";
 const runId = Date.now();
@@ -246,5 +249,109 @@ describe("Workflow routes", () => {
     });
 
     expect(response.statusCode).toBe(400);
+  });
+
+  async function storeVersion(version: number, definition: unknown) {
+    const [stored] = await db
+      .insert(workflowVersions)
+      .values({ workflowId, version, definition })
+      .returning({ id: workflowVersions.id });
+    if (!stored) throw new Error("Failed to insert test workflow version.");
+    return stored.id;
+  }
+
+  async function startRun(versionId: string, input: unknown, headers = owner) {
+    return app.inject({
+      method: "POST",
+      url: "/api/v1/workflows/" + workflowId + "/runs",
+      headers,
+      payload: { versionId, input },
+    });
+  }
+
+  it("creates a run and initializes every step from the requested version", async () => {
+    const versionId = await storeVersion(1, {
+      nodes: [
+        ...fullGraph.nodes,
+        { ...llmNode, id: "c" },
+        { ...llmNode, id: "d" },
+        { ...llmNode, id: "e" },
+      ],
+      edges: [
+        ...fullGraph.edges,
+        { id: "e2", source: "b", target: "c" },
+        { id: "e3", source: "a", target: "d" },
+        { id: "e4", source: "a", target: "e" },
+        { id: "e5", source: "d", target: "e" },
+      ],
+    });
+    const input = { ticket: "sample", urgent: false };
+    const response = await startRun(versionId, input);
+
+    expect(response.statusCode).toBe(202);
+    const { runId: createdId } = response.json<{ runId: string }>();
+    const run = await db.query.workflowRuns.findFirst({
+      where: eq(workflowRuns.id, createdId),
+    });
+    expect(run).toMatchObject({
+      workflowId,
+      workflowVersionId: versionId,
+      status: "queued",
+      input,
+    });
+
+    const steps = await db
+      .select()
+      .from(stepRuns)
+      .where(eq(stepRuns.runId, createdId))
+      .orderBy(stepRuns.nodeId);
+    expect(steps).toMatchObject([
+      { nodeId: "a", status: "succeeded", iteration: 0, input, output: input, finishedAt: expect.any(Date) },
+      { nodeId: "b", status: "queued", iteration: 0 },
+      { nodeId: "c", status: "pending", iteration: 0 },
+      { nodeId: "d", status: "queued", iteration: 0 },
+      { nodeId: "e", status: "pending", iteration: 0 },
+    ]);
+  });
+
+  it("rejects a run when the version is missing or the user lacks access", async () => {
+    const versionId = await storeVersion(2, fullGraph);
+    expect((await startRun(versionId, {}, stranger)).statusCode).toBe(404);
+    expect((await startRun("00000000-0000-4000-8000-000000000000", {})).statusCode).toBe(404);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/workflows/" + workflowId + "/runs",
+      headers: owner,
+      payload: { input: {} },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("rejects invalid graphs before creating a run", async () => {
+    const versionId = await storeVersion(3, { nodes: [], edges: [] });
+    const response = await startRun(versionId, {});
+
+    expect(response.statusCode).toBe(422);
+    expect(await db.query.workflowRuns.findFirst({
+      where: eq(workflowRuns.workflowVersionId, versionId),
+    })).toBeUndefined();
+  });
+
+  it("rolls back the run when PostgreSQL rejects a step insert", async () => {
+    const versionId = await storeVersion(4, fullGraph);
+    // PostgreSQL text fields reject NUL, forcing the second insert to fail.
+    const invalidId = "bad\u0000id";
+    const graph = {
+      nodes: [triggerNode, { ...llmNode, id: invalidId }],
+      edges: [{ id: "e1", source: triggerNode.id, target: invalidId }],
+    };
+
+    await expect(persistRun(workflowId, versionId, graph, {})).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: "22021" }),
+    });
+    expect(await db.query.workflowRuns.findFirst({
+      where: eq(workflowRuns.workflowVersionId, versionId),
+    })).toBeUndefined();
   });
 });
