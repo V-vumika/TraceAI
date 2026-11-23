@@ -8,13 +8,14 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint --config ../api/eslint.config.mjs src",
     "test": "vitest run --exclude \"**/*.integration.test.ts\"",
-    "test:integration": "vitest run src/claim.integration.test.ts"
+    "test:integration": "vitest run .integration.test.ts"
   },
   "dependencies": {
     "@traceai/db": "workspace:*",
     "@traceai/engine": "workspace:*",
     "bullmq": "^5.81.6",
-    "drizzle-orm": "0.44.7"
+    "drizzle-orm": "0.44.7",
+    "ioredis": "5.11.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

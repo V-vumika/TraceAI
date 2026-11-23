@@ -10,9 +10,11 @@ import {
   stepRedisConnection,
   type StepJob,
 } from '@traceai/engine';
+import { createGraphRedis } from './graph-cache';
 import { claimStep } from './claim';
 import { createStepWorker, processStepJob } from './worker';
 
+const redis = createGraphRedis(process.env);
 const workspaceId = randomUUID();
 const workflowId = randomUUID();
 const runId = randomUUID();
@@ -56,6 +58,7 @@ describe('worker claims in PostgreSQL', () => {
         await tx.delete(workspaces).where(eq(workspaces.id, workspaceId));
       });
     } finally {
+      redis.disconnect();
       await client.end();
     }
   }, 60000);
@@ -93,7 +96,7 @@ describe('worker claims in PostgreSQL', () => {
     const handler = vi.fn();
     // PostgreSQL rejects malformed UUID parameters before it can update a row.
     await expect(
-      processStepJob({ ...job('bad-id'), runId: 'invalid-uuid' }, handler),
+      processStepJob({ ...job('bad-id'), runId: 'invalid-uuid' }, redis, handler),
     ).rejects.toMatchObject({ cause: expect.objectContaining({ code: '22P02' }) });
     expect(handler).not.toHaveBeenCalled();
   });
@@ -101,10 +104,13 @@ describe('worker claims in PostgreSQL', () => {
   it('lets exactly one concurrent claimant enter processing', async () => {
     const row = await seedStep('contended');
     const handler = vi.fn();
-    await Promise.all(Array.from({ length: 8 }, () => processStepJob(job(row.nodeId), handler)));
+    await Promise.all(
+      Array.from({ length: 8 }, () => processStepJob(job(row.nodeId), redis, handler)),
+    );
     expect(handler).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ id: row.id, status: 'running' }),
       job(row.nodeId),
+      undefined,
     );
   });
 
@@ -123,7 +129,7 @@ describe('worker claims in PostgreSQL', () => {
     const queue = new Queue<StepJob>(stepQueueName, options);
     const events = new QueueEvents(stepQueueName, options);
     const handler = vi.fn();
-    const worker = createStepWorker(options, handler);
+    const worker = createStepWorker(options, redis, handler);
     const dispatcher = new StepDispatcher(options);
     try {
       await events.waitUntilReady();
@@ -137,6 +143,7 @@ describe('worker claims in PostgreSQL', () => {
       expect(handler).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({ id: row.id, status: 'running' }),
         data,
+        undefined,
       );
       expect(await queue.getCompletedCount()).toBe(2);
     } finally {

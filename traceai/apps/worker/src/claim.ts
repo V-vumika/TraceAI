@@ -4,8 +4,11 @@ import type { StepJob } from '@traceai/engine';
 
 export type ClaimedStep = typeof stepRuns.$inferSelect;
 
-export async function claimStep(job: StepJob): Promise<ClaimedStep | undefined> {
-  const [claimed] = await db
+export async function claimStep(
+  job: StepJob,
+  connection: Pick<typeof db, 'update'> = db,
+): Promise<ClaimedStep | undefined> {
+  const [claimed] = await connection
     .update(stepRuns)
     .set({ status: 'running', startedAt: sql`now()` })
     .where(
