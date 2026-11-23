@@ -2,7 +2,16 @@ import { randomUUID } from 'node:crypto';
 import { Queue, QueueEvents } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { client, db, stepRuns, workflowRuns, workflows, workspaces } from '@traceai/db';
+import {
+  client,
+  db,
+  stepRuns,
+  transitionRun,
+  transitionStep,
+  workflowRuns,
+  workflows,
+  workspaces,
+} from '@traceai/db';
 import {
   StepDispatcher,
   stepJobId,
@@ -154,4 +163,90 @@ describe('worker claims in PostgreSQL', () => {
       await queue.close();
     }
   }, 60000);
+
+  it('starts a run on its first claim and preserves the start time on later claims', async () => {
+    const [run] = await db
+      .insert(workflowRuns)
+      .values({ workflowId, status: 'queued' })
+      .returning();
+    if (!run) throw new Error('Failed to create test run');
+
+    try {
+      const nodeIds = ['first', 'second'];
+      await db
+        .insert(stepRuns)
+        .values(nodeIds.map((nodeId) => ({ runId: run.id, nodeId, status: 'queued' })));
+
+      const handler = vi.fn();
+      await processStepJob({ ...job('first'), runId: run.id }, redis, handler);
+      const started = await db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, run.id) });
+      expect(started).toMatchObject({ status: 'running', startedAt: expect.any(Date) });
+      await processStepJob({ ...job('second'), runId: run.id }, redis, handler);
+      expect(handler).toHaveBeenCalledTimes(2);
+      expect(await db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, run.id) })).toEqual(
+        started,
+      );
+    } finally {
+      await db.transaction(async (tx) => {
+        await tx.delete(stepRuns).where(eq(stepRuns.runId, run.id));
+        await tx.delete(workflowRuns).where(eq(workflowRuns.id, run.id));
+      });
+    }
+  });
+
+  it('persists one completion and leaves terminal steps unchanged', async () => {
+    const step = await seedStep('completion-race', 'running', 1);
+    const otherIteration = await seedStep(step.nodeId, 'running');
+    const results = await Promise.all([
+      transitionStep(db, step, 'running', 'succeeded', { output: { value: 42 } }),
+      transitionStep(db, step, 'running', 'failed', { error: { message: 'failed' } }),
+    ]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const winner = results.find(Boolean);
+    expect(winner).toEqual(
+      expect.objectContaining({
+        id: step.id,
+        finishedAt: expect.any(Date),
+        input: step.input,
+        ...(results[0]
+          ? { status: 'succeeded', output: { value: 42 }, error: null }
+          : { status: 'failed', output: null, error: { message: 'failed' } }),
+      }),
+    );
+    await expect(transitionStep(db, step, 'succeeded', 'running')).rejects.toThrow(
+      'Invalid state transition',
+    );
+    expect(await db.query.stepRuns.findFirst({ where: eq(stepRuns.id, step.id) })).toEqual(winner);
+    expect(
+      await db.query.stepRuns.findFirst({ where: eq(stepRuns.id, otherIteration.id) }),
+    ).toEqual(otherIteration);
+  });
+
+  it('rejects a stale run update and preserves the committed output', async () => {
+    const [run] = await db
+      .insert(workflowRuns)
+      .values({ workflowId, status: 'running' })
+      .returning();
+    if (!run) throw new Error('Failed to create test run');
+
+    try {
+      const completed = await transitionRun(db, run.id, 'running', 'succeeded', { output: 42 });
+      expect(completed).toMatchObject({
+        status: 'succeeded',
+        output: 42,
+        finishedAt: expect.any(Date),
+      });
+      await expect(
+        transitionRun(db, run.id, 'running', 'failed', { output: 0 }),
+      ).resolves.toBeUndefined();
+      await expect(transitionRun(db, run.id, 'succeeded', 'running')).rejects.toThrow(
+        'Invalid state transition',
+      );
+      expect(await db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, run.id) })).toEqual(
+        completed,
+      );
+    } finally {
+      await db.delete(workflowRuns).where(eq(workflowRuns.id, run.id));
+    }
+  });
 });

@@ -1,5 +1,5 @@
 import { Worker, type WorkerOptions } from 'bullmq';
-import { db } from '@traceai/db';
+import { db, transitionRun } from '@traceai/db';
 import type { Redis } from 'ioredis';
 import { loadRunGraph } from './run-graph';
 import { stepQueueName, type CompiledGraph, type StepJob } from '@traceai/engine';
@@ -21,6 +21,7 @@ export async function processStepJob(
     if (!step) return;
     // A failed source load rolls the claim back. Duplicate jobs never touch the cache.
     const graph = await loadRunGraph(redis, step.runId, tx);
+    await transitionRun(tx, step.runId, 'queued', 'running');
     return { step, graph };
   });
   if (claimed) await onClaimed(claimed.step, job, claimed.graph);

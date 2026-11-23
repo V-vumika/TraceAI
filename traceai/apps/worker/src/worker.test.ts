@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { transitionRun } from '@traceai/db';
 import type { Redis } from 'ioredis';
 import { loadRunGraph } from './run-graph';
 import type { StepJob } from '@traceai/engine';
 import { claimStep, type ClaimedStep } from './claim';
 import { processStepJob } from './worker';
 
-vi.mock('@traceai/db', () => ({ db: { transaction: (fn: (tx: object) => unknown) => fn({}) } }));
+vi.mock('@traceai/db', () => ({
+  db: { transaction: (fn: (tx: object) => unknown) => fn({}) },
+  transitionRun: vi.fn(),
+}));
 vi.mock('./run-graph', () => ({ loadRunGraph: vi.fn() }));
 vi.mock('./claim', () => ({ claimStep: vi.fn() }));
 const job: StepJob = { runId: 'run', nodeId: 'step', iteration: 0, attempt: 1 };
@@ -37,6 +41,7 @@ describe('step job processor', () => {
     const handler = vi.fn().mockRejectedValue(failure);
     await expect(processStepJob(job, redis, handler)).rejects.toBe(failure);
     expect(claimStep).toHaveBeenCalledWith(job, {});
+    expect(transitionRun).toHaveBeenCalledExactlyOnceWith({}, job.runId, 'queued', 'running');
     expect(handler).toHaveBeenCalledExactlyOnceWith(claimed, job, graph);
     expect(loadGraph).toHaveBeenCalledWith(redis, job.runId, {});
   });
@@ -47,6 +52,7 @@ describe('step job processor', () => {
     loadGraph.mockRejectedValue(failure);
     const handler = vi.fn();
     await expect(processStepJob(job, redis, handler)).rejects.toBe(failure);
+    expect(transitionRun).not.toHaveBeenCalled();
     expect(handler).not.toHaveBeenCalled();
   });
 
@@ -55,6 +61,7 @@ describe('step job processor', () => {
     const handler = vi.fn();
     await expect(processStepJob(job, redis, handler)).resolves.toBeUndefined();
     expect(loadGraph).not.toHaveBeenCalled();
+    expect(transitionRun).not.toHaveBeenCalled();
     expect(handler).not.toHaveBeenCalled();
   });
 
