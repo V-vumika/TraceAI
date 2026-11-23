@@ -1,0 +1,26 @@
+{
+  "name": "@traceai/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint --config ../api/eslint.config.mjs src",
+    "test": "vitest run --exclude \"**/*.integration.test.ts\"",
+    "test:integration": "vitest run src/claim.integration.test.ts"
+  },
+  "dependencies": {
+    "@traceai/db": "workspace:*",
+    "@traceai/engine": "workspace:*",
+    "bullmq": "^5.81.6",
+    "drizzle-orm": "0.44.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "eslint": "^10.14.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^5.0.5"
+  }
+}
