@@ -1,5 +1,5 @@
 import { db, stepRuns, workflowRuns } from "@traceai/db";
-import { compileGraph, GraphCompilationError } from "@traceai/engine";
+import { compileGraph, GraphCompilationError, type StepJob } from "@traceai/engine";
 import type { Graph } from "@traceai/nodes";
 
 export async function persistRun(
@@ -7,7 +7,7 @@ export async function persistRun(
   versionId: string,
   graph: Graph,
   input: unknown,
-): Promise<string> {
+): Promise<{ runId: string; readySteps: StepJob[] }> {
   const compiled = compileGraph(graph);
   const triggers = graph.nodes.filter((node) => node.data.nodeType === "manual-trigger");
   const [trigger] = triggers;
@@ -30,6 +30,7 @@ export async function persistRun(
     if (!run) throw new Error("Failed to create workflow run.");
 
     const now = new Date();
+    const readySteps: StepJob[] = [];
     await tx.insert(stepRuns).values(
       compiled.topologicalOrder.map((nodeId) => {
         const step = { runId: run.id, nodeId, iteration: 0 };
@@ -45,10 +46,11 @@ export async function persistRun(
         }
         const parents = compiled.parents.get(nodeId);
         const ready = parents?.length === 1 && parents[0] === trigger.id;
+        if (ready) readySteps.push({ ...step, attempt: 1 });
         return { ...step, status: ready ? "queued" : "pending" };
       }),
     );
 
-    return run.id;
+    return { runId: run.id, readySteps };
   });
 }

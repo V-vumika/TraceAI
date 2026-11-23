@@ -5,10 +5,12 @@
   "main": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --exclude \"**/*.integration.test.ts\"",
+    "test:integration": "vitest run src/dispatcher.integration.test.ts"
   },
   "dependencies": {
-    "@traceai/nodes": "workspace:*"
+    "@traceai/nodes": "workspace:*",
+    "bullmq": "^5.81.6"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

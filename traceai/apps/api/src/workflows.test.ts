@@ -1,8 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { db, stepRuns, workflowRuns, workflowVersions } from "@traceai/db";
 import { app } from "./server";
 import { persistRun } from "./runs";
+import { StepDispatcher } from "@traceai/engine";
+
+afterEach(() => { vi.restoreAllMocks(); });
 
 const password = "TestPass123!";
 const runId = Date.now();
@@ -286,10 +289,23 @@ describe("Workflow routes", () => {
       ],
     });
     const input = { ticket: "sample", urgent: false };
+    let committedNodeIds: string[] = [];
+    const enqueue = vi.spyOn(StepDispatcher.prototype, "enqueue").mockImplementationOnce(async (jobs) => {
+      const [first] = jobs;
+      if (!first) throw new Error("Expected ready steps.");
+      // An independent PostgreSQL connection can only see committed rows.
+      const rows = await db.select().from(stepRuns).where(eq(stepRuns.runId, first.runId));
+      committedNodeIds = rows.map((row) => row.nodeId).sort();
+    });
     const response = await startRun(versionId, input);
 
     expect(response.statusCode).toBe(202);
     const { runId: createdId } = response.json<{ runId: string }>();
+    expect(committedNodeIds).toEqual(["a", "b", "c", "d", "e"]);
+    expect(enqueue).toHaveBeenCalledExactlyOnceWith([
+      { runId: createdId, nodeId: "b", iteration: 0, attempt: 1 },
+      { runId: createdId, nodeId: "d", iteration: 0, attempt: 1 },
+    ]);
     const run = await db.query.workflowRuns.findFirst({
       where: eq(workflowRuns.id, createdId),
     });
@@ -329,13 +345,25 @@ describe("Workflow routes", () => {
   });
 
   it("rejects invalid graphs before creating a run", async () => {
+    const enqueue = vi.spyOn(StepDispatcher.prototype, "enqueue");
     const versionId = await storeVersion(3, { nodes: [], edges: [] });
     const response = await startRun(versionId, {});
 
     expect(response.statusCode).toBe(422);
+    expect(enqueue).not.toHaveBeenCalled();
     expect(await db.query.workflowRuns.findFirst({
       where: eq(workflowRuns.workflowVersionId, versionId),
     })).toBeUndefined();
+  });
+
+  it("returns the committed run ID and preserves ready steps when Redis rejects delivery", async () => {
+    const versionId = await storeVersion(5, fullGraph);
+    vi.spyOn(StepDispatcher.prototype, "enqueue").mockRejectedValueOnce(new Error("Redis unavailable"));
+    const response = await startRun(versionId, {});
+    expect(response.statusCode).toBe(202);
+    const { runId } = response.json<{ runId: string }>();
+    const steps = await db.select().from(stepRuns).where(eq(stepRuns.runId, runId)).orderBy(stepRuns.nodeId);
+    expect(steps.map(({ nodeId, status }) => [nodeId, status])).toEqual([["a", "succeeded"], ["b", "queued"]]);
   });
 
   it("rolls back the run when PostgreSQL rejects a step insert", async () => {

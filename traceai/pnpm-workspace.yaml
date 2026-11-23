@@ -5,3 +5,4 @@ allowBuilds:
   argon2: true
   esbuild: true
   unrs-resolver: false
+  msgpackr-extract: false

@@ -14,7 +14,7 @@ import {
   workflows,
   workflowVersions,
 } from "@traceai/db";
-import { GraphCompilationError } from "@traceai/engine";
+import { GraphCompilationError, StepDispatcher, stepRedisConnection } from "@traceai/engine";
 import { persistRun } from "./runs";
 import argon2 from "argon2";
 import jwt from "jsonwebtoken";
@@ -119,6 +119,17 @@ const createRunSchema = z.object({ versionId: uuidSchema, input: z.json() });
 // ---------------------------------------------------------------------------
 const app = Fastify({ logger: true });
 export { app };
+
+const stepDispatcher = new StepDispatcher({
+  connection: {
+    ...stepRedisConnection(process.env),
+    connectTimeout: 2000,
+    commandTimeout: 3000,
+    maxRetriesPerRequest: 1,
+    retryStrategy: (times) => times <= 1 ? 100 : null,
+  },
+});
+app.addHook("onClose", () => stepDispatcher.close());
 
 app.register(fastifyCookie);
 
@@ -388,7 +399,14 @@ app.post(
     }
 
     try {
-      const runId = await persistRun(workflow.id, version.id, graph.data, input);
+      const { runId, readySteps } = await persistRun(workflow.id, version.id, graph.data, input);
+      try {
+        await stepDispatcher.enqueue(readySteps);
+      } catch (err) {
+        // The run is already durable. Return its ID so the caller does not
+        // create a second run. Queued rows remain available for reconciliation.
+        request.log.error({ err, runId, readySteps }, "Step dispatch failed after run commit");
+      }
       return reply.status(202).send({ runId });
     } catch (error) {
       if (!(error instanceof GraphCompilationError)) throw error;
