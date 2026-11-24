@@ -1,0 +1,172 @@
+# FlowTrace Roadmap Tasks
+
+> Original task numbering preserved from the spreadsheet (2–169). Week and Day columns are intentionally omitted.
+
+- [x] **2.** Monorepo with pnpm + Turborepo (apps/web, api, worker, scheduler, ingest; packages/engine, nodes, db, shared)
+- [x] **3.** TypeScript strict config, ESLint, Prettier, Vitest
+- [x] **4.** Git init, PR template, conventional commits
+- [x] **5.** docker-compose: Postgres (pgvector), Redis (AOF), ClickHouse, MinIO
+- [x] **6.** Write .env.example and scripts: infra:up, db:migrate, seed
+- [x] **7.** Verify you can connect to every container
+- [x] **8.** Drizzle setup + migrations
+- [x] **9.** Tables: users, workspaces, memberships, workflows, workflow_versions, runs, step_runs
+- [x] **10.** Add unique(run_id,node_id,iteration) and status indexes
+- [x] **11.** Seed script with demo user and workspace
+- [x] **12.** Fastify app, Zod validation, health route, problem+json errors
+- [x] **13.** Signup, login, refresh (argon2, JWT, httpOnly cookie)
+- [x] **14.** Workspace create + role check on every route
+- [x] **15.** Integration tests for auth
+- [x] **16.** Next.js + Tailwind + shadcn/ui
+- [x] **17.** Login, signup, workflow list pages
+- [x] **18.** Typed API client + TanStack Query
+- [x] **19.** GitHub Actions: lint, typecheck, unit, integration
+- [x] **20.** README: how to run locally
+- [x] **21.** Catch up on slipped work
+- [x] **22.** React Flow canvas: pan, zoom, minimap, snap-to-grid
+- [x] **23.** Zustand graph store (nodes, edges, selection)
+- [x]**24.** Delete / select-all / duplicate shortcuts
+- [x] **25.** Node palette grouped by category
+- [x] **26.** Drag node from palette to canvas
+- [x] **27.** Custom node component with handles and status badge
+- [x] **28.** Connection rules (no self-loop, no edge into trigger, no cycles)
+- [x] **29.** NodeDefinition type in packages/nodes
+- [x] **30.** GET /api/v1/nodes catalog
+- [x] **31.** Schema-driven config form from Zod
+- [x] **32.** Right-side config panel
+- [x] **33.** Schemas for Manual Trigger, LLM, Condition, HTTP, JavaScript, Merge, Delay
+- [x] **34.** Monaco editor for JS and JSON fields
+- [x] **35.** Common settings: timeout, retry, continue-on-error
+- [x] **36.** Expression input with {{ }} autocomplete
+- [x] **37.** Shared graph validator (frontend + API)
+- [x] **38.** Rules: missing fields, disconnected, bad refs, missing credential, cycles
+- [x] **39.** Red badges on nodes + problems list
+- [x] **40.** Debounced autosave of draft_graph
+- [x] **41.** Reload and confirm graph is identical
+- [x] **42.** Optional: undo/redo
+- [x] **43.** NodeResult, ExecContext, StepError types
+- [x] **44.** Compiler: validate, cycle check, topological order, adjacency maps
+- [x] **45.** Tests: linear, diamond, branch, invalid cycle
+- [x] **46.** Safe {{ }} resolver (no eval)
+- [x] **47.** Whitelist functions: json, upper, lower, length, default, now
+- [x] **48.** Clear errors naming node and path
+- [x] **49.** Unit tests
+- [x] **50.** Create run + step_runs in one transaction
+- [x] **51.** Enqueue BullMQ jobs after COMMIT (jobId runId:nodeId:iteration:attempt)
+- [x] **52.** Worker claim: UPDATE ... WHERE status='queued' RETURNING
+- [x] **53.** Graph cache in Redis
+- [x] **54.** Conditional-UPDATE state transitions
+- [ ] **55.** advance() with SELECT ... FOR UPDATE
+- [ ] **56.** Merge all/any + skip propagation
+- [ ] **57.** Final run status + continue-on-error
+- [ ] **58.** LLM adapter interface
+- [ ] **59.** Mock provider (latency + error rate)
+- [ ] **60.** One real provider (OpenAI or Anthropic)
+- [ ] **61.** Executors: LLM, Condition, HTTP, Merge, JavaScript
+- [ ] **62.** Table-driven tests for advance()
+- [ ] **63.** Optional property test with fast-check
+- [ ] **64.** Run a real workflow end to end via API
+- [ ] **65.** Retryable vs non-retryable error classification
+- [ ] **66.** Exponential backoff + jitter + Retry-After
+- [ ] **67.** Attempt tracking and delayed re-enqueue
+- [ ] **68.** Per-node timeout via AbortSignal
+- [ ] **69.** lease_expires_at + extend every 20s
+- [ ] **70.** Scheduler with Redis leader election
+- [ ] **71.** Reconciler every 30s (lost jobs, expired leases, due delays, max duration)
+- [ ] **72.** Durable Delay node
+- [ ] **73.** POST /runs/:id/cancel with Redis flag
+- [ ] **74.** Per-run max duration
+- [ ] **75.** Idempotency keys on context and HTTP node
+- [ ] **76.** Per-workspace concurrency limit
+- [ ] **77.** Envelope encryption (AES-256-GCM) in packages/crypto
+- [ ] **78.** Credential CRUD, values never returned
+- [ ] **79.** Decrypt only inside worker memory
+- [ ] **80.** SSRF guard for HTTP node
+- [ ] **81.** JS node in isolated-vm with limits
+- [ ] **82.** Webhook trigger (202 + run id)
+- [ ] **83.** Cron trigger, timezone aware
+- [ ] **84.** API keys (hash only, shown once)
+- [ ] **85.** 200 runs of a 10-node workflow with mock LLM
+- [ ] **86.** Kill a random worker every 10s
+- [ ] **87.** Check: all runs terminal, no step succeeded twice
+- [ ] **88.** Fix every bug found
+- [ ] **89.** Publish step/run events to Redis run:{runId}
+- [ ] **90.** WebSocket gateway with JWT + workspace check
+- [ ] **91.** Reconnect: load REST state first, then apply events
+- [ ] **92.** Live node states on canvas
+- [ ] **93.** Node inspector: input, output, logs, error
+- [ ] **94.** Test run button with sample input
+- [ ] **95.** Strict validation + compile + immutable version
+- [ ] **96.** Version history list + restore as draft
+- [ ] **97.** Simple version diff endpoint
+- [ ] **98.** OTel SDK with async batch exporter
+- [ ] **99.** Spans: workflow.run, workflow.step, gen_ai, http.client
+- [ ] **100.** Store trace_id on runs and span_id on step_runs
+- [ ] **101.** GenAI attributes (model, tokens, finish reason)
+- [ ] **102.** POST /v1/traces (OTLP/HTTP) with auth + validation
+- [ ] **103.** Regex PII redaction
+- [ ] **104.** Cost from model_pricing table
+- [ ] **105.** Offload payloads >32KB, XADD to Redis Stream, 429 on backpressure
+- [ ] **106.** ClickHouse spans table
+- [ ] **107.** XREADGROUP batches (10k or 1s), bulk insert, ack, DLQ after 5 fails
+- [ ] **108.** Verify: run workflow, query its spans
+- [ ] **109.** step_metrics_1m and run_metrics_1m views
+- [ ] **110.** GET /metrics with groupBy and time range
+- [ ] **111.** p50/p95/p99 via quantilesTDigestMerge
+- [ ] **112.** Runs table with filters (workflow, status, date, cost, duration)
+- [ ] **113.** Cursor pagination
+- [ ] **114.** Error text search via ClickHouse
+- [ ] **115.** GET /runs/:id/trace
+- [ ] **116.** Waterfall + tree views
+- [ ] **117.** Span detail: prompt, response, tokens, cost, error
+- [ ] **118.** Canvas node <-> span links
+- [ ] **119.** Runs, success rate, latency, cost, token charts (Recharts)
+- [ ] **120.** Top failing, slowest and most expensive nodes
+- [ ] **121.** 30-day queries under 1s
+- [ ] **122.** alert_rules and alert_events tables + CRUD
+- [ ] **123.** Evaluator every 60s (ok, firing, resolved)
+- [ ] **124.** Slack webhook with link, cooldown, resolved message
+- [ ] **125.** prom-client metrics (steps, queue, reconciler, ingest)
+- [ ] **126.** Basic Grafana dashboard
+- [ ] **127.** Fix performance and UI rough edges
+- [ ] **128.** Auto-focus failed step with error, input, config, prompt
+- [ ] **129.** Plain-language error hints (invalid JSON, 401, 429, timeout)
+- [ ] **130.** POST /runs/:id/rerun
+- [ ] **131.** POST /steps/:id/replay with configOverrides + safeMode
+- [ ] **132.** Replay run with original input snapshot
+- [ ] **133.** Safe mode uses mock() for side-effect nodes
+- [ ] **134.** Test: no real email/POST in safe mode
+- [ ] **135.** Replay panel: edit prompt/config, safe-mode toggle
+- [ ] **136.** Original vs replay output side by side
+- [ ] **137.** Apply change to draft
+- [ ] **138.** Optional: replay from here
+- [ ] **139.** datasets and dataset_items tables + CRUD
+- [ ] **140.** Add to dataset from runs and failed steps
+- [ ] **141.** CSV/JSON import and item editor
+- [ ] **142.** eval_runs and eval_results tables
+- [ ] **143.** Run each item in mode=eval with concurrency limit
+- [ ] **144.** Scorers: exact, contains, regex, JSON schema, numeric
+- [ ] **145.** Store score, pass, cost, latency
+- [ ] **146.** LLM-as-judge scorer (0-1 + reason)
+- [ ] **147.** Eval report: per-item, pass rate, cost, latency
+- [ ] **148.** Compare two evals: improved / regressed / unchanged
+- [ ] **149.** publish_gates table + endpoint
+- [ ] **150.** Eval on publish, block if below threshold, link to report
+- [ ] **151.** Audit log entries
+- [ ] **152.** 1,000+ runs with random worker kills every 5-15s
+- [ ] **153.** SQL invariant checker
+- [ ] **154.** Record lost steps, duplicates, recovery p50/p95
+- [ ] **155.** Fix issues and rerun
+- [ ] **156.** k6: steady run creation + webhook burst
+- [ ] **157.** Measure latency, steps/sec, scheduling overhead
+- [ ] **158.** Span generator: ingest spans/sec + query latency at 1M and 10M rows
+- [ ] **159.** Save raw results + hardware
+- [ ] **160.** 3 templates (ticket triage, Q&A bot, daily report)
+- [ ] **161.** Seed: demo workspace, templates, mock credential, dataset
+- [ ] **162.** New user runs a template in under 5 min
+- [ ] **163.** README: pitch, GIFs, architecture diagram, quick start, benchmarks
+- [ ] **164.** docs/benchmarks with reproduce commands
+- [ ] **165.** Deploy on VPS (Compose + Caddy) or AWS
+- [ ] **166.** Protect demo: invite-only or rate limits, mock LLM default
+- [ ] **167.** 3-5 min demo: build, fail, trace, replay, eval, gated publish
+- [ ] **168.** Blog post on crash-recovery design
+- [ ] **169.** Final cleanup; check README commands on a clean machine
