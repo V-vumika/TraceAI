@@ -28,6 +28,7 @@ const claimed: ClaimedStep = {
 };
 
 const redis = {} as Redis;
+const dispatcher = { enqueue: vi.fn() };
 const loadGraph = vi.mocked(loadRunGraph);
 
 describe('step job processor', () => {
@@ -39,7 +40,7 @@ describe('step job processor', () => {
     loadGraph.mockResolvedValue(graph);
     const failure = new Error('handler failed');
     const handler = vi.fn().mockRejectedValue(failure);
-    await expect(processStepJob(job, redis, handler)).rejects.toBe(failure);
+    await expect(processStepJob(job, redis, handler, dispatcher)).rejects.toBe(failure);
     expect(claimStep).toHaveBeenCalledWith(job, {});
     expect(transitionRun).toHaveBeenCalledExactlyOnceWith({}, job.runId, 'queued', 'running');
     expect(handler).toHaveBeenCalledExactlyOnceWith(claimed, job, graph);
@@ -51,7 +52,7 @@ describe('step job processor', () => {
     vi.mocked(claimStep).mockResolvedValue(claimed);
     loadGraph.mockRejectedValue(failure);
     const handler = vi.fn();
-    await expect(processStepJob(job, redis, handler)).rejects.toBe(failure);
+    await expect(processStepJob(job, redis, handler, dispatcher)).rejects.toBe(failure);
     expect(transitionRun).not.toHaveBeenCalled();
     expect(handler).not.toHaveBeenCalled();
   });
@@ -59,17 +60,18 @@ describe('step job processor', () => {
   it('acknowledges an unmatched claim without invoking the handler', async () => {
     vi.mocked(claimStep).mockResolvedValue(undefined);
     const handler = vi.fn();
-    await expect(processStepJob(job, redis, handler)).resolves.toBeUndefined();
+    await expect(processStepJob(job, redis, handler, dispatcher)).resolves.toBeUndefined();
     expect(loadGraph).not.toHaveBeenCalled();
     expect(transitionRun).not.toHaveBeenCalled();
     expect(handler).not.toHaveBeenCalled();
+    expect(dispatcher.enqueue).not.toHaveBeenCalled();
   });
 
   it('propagates database errors to BullMQ and skips processing', async () => {
     const failure = new Error('database unavailable');
     vi.mocked(claimStep).mockRejectedValue(failure);
     const handler = vi.fn();
-    await expect(processStepJob(job, redis, handler)).rejects.toBe(failure);
+    await expect(processStepJob(job, redis, handler, dispatcher)).rejects.toBe(failure);
     expect(handler).not.toHaveBeenCalled();
   });
 });

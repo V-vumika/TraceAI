@@ -22,6 +22,7 @@ const runId = randomUUID();
 const versionId = randomUUID();
 const key = 'graph:' + versionId;
 const redis = createGraphRedis(process.env);
+const dispatcher = { enqueue: vi.fn() };
 const load = () => loadVersionGraph(redis, workflowId, versionId);
 
 function definition(target: string) {
@@ -71,7 +72,7 @@ it('loads the pinned graph on a worker miss and serves the compiled maps on a hi
   await redis.del(key);
   const handler = vi.fn();
   const job = { runId, nodeId: 'wait', iteration: 0, attempt: 1 };
-  await processStepJob(job, redis, handler);
+  await processStepJob(job, redis, handler, dispatcher);
   const expected = compileGraph(definition('wait'));
   expect(handler).toHaveBeenCalledExactlyOnceWith(
     expect.objectContaining({ status: 'running' }),
@@ -97,7 +98,12 @@ it('rolls the claim back when the published graph cannot compile', async () => {
       .set({ definition: { nodes: [], edges: [] } })
       .where(eq(workflowVersions.id, versionId));
     await expect(
-      processStepJob({ runId, nodeId: 'retry', iteration: 0, attempt: 1 }, redis, handler),
+      processStepJob(
+        { runId, nodeId: 'retry', iteration: 0, attempt: 1 },
+        redis,
+        handler,
+        dispatcher,
+      ),
     ).rejects.toThrow('trigger');
     expect(handler).not.toHaveBeenCalled();
     const steps = await db.select().from(stepRuns).where(eq(stepRuns.runId, runId));

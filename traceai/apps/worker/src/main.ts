@@ -1,12 +1,14 @@
 import { client } from '@traceai/db';
-import { stepRedisConnection } from '@traceai/engine';
+import { StepDispatcher, stepRedisConnection } from '@traceai/engine';
 import { createGraphRedis } from './graph-cache';
 import { createStepWorker } from './worker';
 
 const graphRedis = createGraphRedis(process.env);
 graphRedis.on('error', (error) => console.warn('Graph cache connection error', error.message));
+const connection = stepRedisConnection(process.env);
+const dispatcher = new StepDispatcher({ connection });
 const worker = createStepWorker(
-  { connection: { ...stepRedisConnection(process.env), maxRetriesPerRequest: null } },
+  { connection: { ...connection, maxRetriesPerRequest: null } },
   graphRedis,
   (step, _job, graph) => {
     console.info('Claimed queued step', {
@@ -16,6 +18,7 @@ const worker = createStepWorker(
       parents: graph?.parents.get(step.nodeId),
     });
   },
+  dispatcher,
 );
 
 worker.on('error', (error) => console.error('Worker connection error', error));
@@ -26,7 +29,7 @@ async function shutdown() {
     await worker.close();
   } finally {
     graphRedis.disconnect();
-    await client.end();
+    await Promise.all([dispatcher.close(), client.end()]);
   }
 }
 

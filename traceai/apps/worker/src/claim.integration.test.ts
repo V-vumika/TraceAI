@@ -24,6 +24,7 @@ import { claimStep } from './claim';
 import { createStepWorker, processStepJob } from './worker';
 
 const redis = createGraphRedis(process.env);
+const dispatcher = { enqueue: vi.fn() };
 const workspaceId = randomUUID();
 const workflowId = randomUUID();
 const runId = randomUUID();
@@ -105,7 +106,7 @@ describe('worker claims in PostgreSQL', () => {
     const handler = vi.fn();
     // PostgreSQL rejects malformed UUID parameters before it can update a row.
     await expect(
-      processStepJob({ ...job('bad-id'), runId: 'invalid-uuid' }, redis, handler),
+      processStepJob({ ...job('bad-id'), runId: 'invalid-uuid' }, redis, handler, dispatcher),
     ).rejects.toMatchObject({ cause: expect.objectContaining({ code: '22P02' }) });
     expect(handler).not.toHaveBeenCalled();
   });
@@ -114,7 +115,7 @@ describe('worker claims in PostgreSQL', () => {
     const row = await seedStep('contended');
     const handler = vi.fn();
     await Promise.all(
-      Array.from({ length: 8 }, () => processStepJob(job(row.nodeId), redis, handler)),
+      Array.from({ length: 8 }, () => processStepJob(job(row.nodeId), redis, handler, dispatcher)),
     );
     expect(handler).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ id: row.id, status: 'running' }),
@@ -138,8 +139,8 @@ describe('worker claims in PostgreSQL', () => {
     const queue = new Queue<StepJob>(stepQueueName, options);
     const events = new QueueEvents(stepQueueName, options);
     const handler = vi.fn();
-    const worker = createStepWorker(options, redis, handler);
     const dispatcher = new StepDispatcher(options);
+    const worker = createStepWorker(options, redis, handler, dispatcher);
     try {
       await events.waitUntilReady();
       await dispatcher.enqueue([data]);
@@ -178,10 +179,10 @@ describe('worker claims in PostgreSQL', () => {
         .values(nodeIds.map((nodeId) => ({ runId: run.id, nodeId, status: 'queued' })));
 
       const handler = vi.fn();
-      await processStepJob({ ...job('first'), runId: run.id }, redis, handler);
+      await processStepJob({ ...job('first'), runId: run.id }, redis, handler, dispatcher);
       const started = await db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, run.id) });
       expect(started).toMatchObject({ status: 'running', startedAt: expect.any(Date) });
-      await processStepJob({ ...job('second'), runId: run.id }, redis, handler);
+      await processStepJob({ ...job('second'), runId: run.id }, redis, handler, dispatcher);
       expect(handler).toHaveBeenCalledTimes(2);
       expect(await db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, run.id) })).toEqual(
         started,
