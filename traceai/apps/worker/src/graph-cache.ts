@@ -1,7 +1,9 @@
 import { Redis } from 'ioredis';
-import { stepRedisConnection, type CompiledGraph } from '@traceai/engine';
+import { stepRedisConnection, type CompiledGraph, type Dependency } from '@traceai/engine';
 
 const ttlSeconds = 60 * 60;
+const revisionField = 'revision-v2';
+const graphField = 'compiled-v2';
 
 export function createGraphRedis(env: NodeJS.ProcessEnv) {
   const connection = stepRedisConnection(env);
@@ -16,22 +18,45 @@ function stringList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
+function isDependency(value: unknown): value is Dependency {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'source' in value &&
+    typeof value.source === 'string' &&
+    'sourceHandle' in value &&
+    (value.sourceHandle === null || typeof value.sourceHandle === 'string')
+  );
+}
+
 function unpack(payload: string): CompiledGraph | undefined {
   const entries: unknown = JSON.parse(payload);
   if (!Array.isArray(entries) || entries.length === 0) return;
   const topologicalOrder: string[] = [];
   const parents = new Map<string, string[]>();
   const children = new Map<string, string[]>();
+  const dependencies = new Map<string, Dependency[]>();
+  const mergeAny = new Set<string>();
   for (const entry of entries) {
     if (!Array.isArray(entry)) return;
-    const [id, incoming, outgoing] = entry;
-    if (typeof id !== 'string' || parents.has(id) || !stringList(incoming) || !stringList(outgoing))
+    const [id, incoming, outgoing, edges, waitForAny] = entry;
+    if (
+      typeof id !== 'string' ||
+      parents.has(id) ||
+      !stringList(incoming) ||
+      !stringList(outgoing) ||
+      !Array.isArray(edges) ||
+      !edges.every(isDependency) ||
+      typeof waitForAny !== 'boolean'
+    )
       return;
     topologicalOrder.push(id);
     parents.set(id, incoming);
     children.set(id, outgoing);
+    dependencies.set(id, edges);
+    if (waitForAny) mergeAny.add(id);
   }
-  return { topologicalOrder, parents, children };
+  return { topologicalOrder, parents, children, dependencies, mergeAny };
 }
 
 type LoadedGraph = { revision: string; graph: CompiledGraph };
@@ -45,7 +70,7 @@ export async function cachedGraph(
   const key = 'graph:' + versionId;
   if (revision !== undefined) {
     try {
-      const [storedRevision, payload] = await redis.hmget(key, 'revision', 'compiled-v1');
+      const [storedRevision, payload] = await redis.hmget(key, revisionField, graphField);
       if (storedRevision === revision && payload) {
         const graph = unpack(payload);
         if (graph) return graph;
@@ -60,11 +85,13 @@ export async function cachedGraph(
         id,
         graph.parents.get(id),
         graph.children.get(id),
+        graph.dependencies.get(id),
+        graph.mergeAny.has(id),
       ]);
       // Publish the value and expiry together. The graph is usable even if Redis goes away.
       await redis
         .multi()
-        .hset(key, 'revision', current.revision, 'compiled-v1', JSON.stringify(entries))
+        .hset(key, revisionField, current.revision, graphField, JSON.stringify(entries))
         .expire(key, ttlSeconds)
         .exec()
         .catch(() => undefined);

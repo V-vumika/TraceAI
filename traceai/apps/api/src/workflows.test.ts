@@ -344,6 +344,30 @@ describe("Workflow routes", () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it("queues an any-mode merge directly from the trigger while its other parent waits", async () => {
+    const versionId = await storeVersion(6, {
+      nodes: [
+        ...fullGraph.nodes,
+        { ...llmNode, id: "join", data: { nodeType: "merge", config: { mode: "any" } } },
+      ],
+      edges: [
+        ...fullGraph.edges,
+        { id: "trigger-join", source: "a", target: "join" },
+        { id: "llm-join", source: "b", target: "join" },
+      ],
+    });
+    const enqueue = vi.spyOn(StepDispatcher.prototype, "enqueue").mockResolvedValueOnce(undefined);
+    const response = await startRun(versionId, {});
+    expect(response.statusCode).toBe(202);
+    const { runId } = response.json<{ runId: string }>();
+    expect(enqueue).toHaveBeenCalledExactlyOnceWith([
+      { runId, nodeId: "b", iteration: 0, attempt: 1 },
+      { runId, nodeId: "join", iteration: 0, attempt: 1 },
+    ]);
+    expect((await db.query.stepRuns.findMany({ where: eq(stepRuns.runId, runId) }))
+      .find(({ nodeId }) => nodeId === "join")?.status).toBe("queued");
+  });
+
   it("rejects invalid graphs before creating a run", async () => {
     const enqueue = vi.spyOn(StepDispatcher.prototype, "enqueue");
     const versionId = await storeVersion(3, { nodes: [], edges: [] });

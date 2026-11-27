@@ -122,7 +122,7 @@ The git root is `TraceAI/`. The project lives in `TraceAI/traceai/`. The CI file
 | `packages/db` | **Built.** Drizzle schema, migrations, seed |
 | `packages/nodes` | **Built.** Node definitions, config schemas, shared graph validator, expression hints |
 | `packages/engine` | **Started.** Types, step error helpers, graph compiler, expression resolver, and BullMQ dispatcher |
-| `apps/worker` | **Started.** Step claims, Redis graph cache, and guarded run startup |
+| `apps/worker` | **Started.** Step claims, Redis graph cache, guarded run startup, and basic scheduling after step completion |
 | `apps/scheduler`, `apps/ingest` | Not created yet |
 | `packages/llm`, `clickhouse`, `telemetry`, `sandbox`, `crypto`, `shared` | Folders exist, no code yet |
 
@@ -226,8 +226,8 @@ Source: [numbered roadmap](./traceai-roadmap-numbered%20.md). Task numbers follo
 | | 6. Autosave of `draft_graph`, reload check | Done in code with automated tests. Undo/redo skipped (optional) |
 | **3** | 1. `NodeResult`/`ExecContext`/`StepError` types, compiler, compiler tests | Done (tasks 43–45) |
 | | 2. Safe expression resolver and tests | Done (tasks 46–49) |
-| | 3. Run creation, job dispatch, worker claims, graph cache, and guarded state transitions | Done through task 54. Task 55, `advance()` with a run-row lock, is next. |
-| | Remaining execution work | Merge, skip propagation, final run status, and executors are pending. |
+| | 3. Run creation, job dispatch, worker claims, graph cache, guarded transitions, and `advance()` | Done through task 56, including merge modes and skip propagation. Task 57 covers final run status and `continueOnError`. |
+| | Remaining execution work | Final run status, `continueOnError`, and node executors are pending. |
 | **4 to 8** | Reliability, security, live UI, tracing, metrics, replay, evals, proof, ship | Not started |
 
 ### Planned order for the demo
@@ -272,10 +272,12 @@ Editor details:
 
 ### Worker (`apps/worker`)
 
-The worker claims a queued step by run, node, and iteration. It loads the compiled graph through Redis and starts the run if the run is still queued. These database changes share a transaction, so a graph load failure rolls the claim back. The current worker logs claimed steps. Executor results and scheduling will use the transition helpers as those features are added.
+The worker claims a queued step by run, node, and iteration. It loads the compiled graph through Redis and starts the run if the run is still queued. These database changes share a transaction, so a graph load failure rolls the claim back.
+
+When a handler returns a result, `advance()` locks the run row and saves the result, including any selected branch. Pending steps are queued or skipped using the [workflow readiness rules](./workflow.md#b5-scheduling-algorithm-advance). The worker publishes new jobs to BullMQ after commit. Run creation uses the same rules to determine what the manual trigger can start. The default worker handler logs claims, and node executors are planned for task 61.
 
 ### Packages
-- **`@traceai/db`:** tables `users`, `workspaces`, `memberships`, `workflows` (with `draft_graph`), `workflow_versions`, `workflow_runs`, `step_runs`. Migrations `0000` to `0005`. Seed script: `pnpm --filter @traceai/db seed`.
+- **`@traceai/db`:** tables `users`, `workspaces`, `memberships`, `workflows` (with `draft_graph`), `workflow_versions`, `workflow_runs`, `step_runs`. Run `pnpm db:migrate` to apply `0006_step_branch`, which adds the nullable branch column to existing databases. Seed script: `pnpm --filter @traceai/db seed`.
 - **Run and step transitions:** `transitionRun` and `transitionStep` update a row only if its current status matches the expected status. A successful update returns the row with its new status and timestamps. Stale updates return `undefined`. Invalid transition pairs throw before writing.
 - **`@traceai/nodes`** (source-only, web uses `transpilePackages`): `NodeDefinition` type, 7 node definitions (`manual-trigger`, `llm`, `condition`, `merge`, `delay`, `http`, `javascript`) with Zod config schemas, `commonSettingsSchema`, expression variable and function lists, and the **shared graph validator**.
 - **`@traceai/engine`:** `NodeResult`, `ExecContext`, `StepError` types and `createStepError` / `describeStepError` helpers.
@@ -291,7 +293,7 @@ Used by the web app today and meant to be used by the API on save and publish.
 | `apps/api` | Auth integration tests and workflow route tests (create, list, save, read back, overwrite, reject invalid, hide from other workspaces, login required). They run against the real database |
 | `packages/nodes` | Graph validator tests |
 | `packages/engine` | Step error helpers, graph compiler, expression resolver, and BullMQ dispatcher tests |
-| `apps/worker` | PostgreSQL tests for step claims, run startup, and concurrent or stale transitions. Worker integration tests also cover the Redis graph cache and BullMQ job delivery. |
+| `apps/worker` | Integration tests for claims, the graph cache, run-row locking, rollback, and one BullMQ job per newly ready child. |
 | `apps/web` | Graph serialize round-trip tests |
 
 ---
@@ -383,7 +385,7 @@ Common problems:
 ## 14. Next steps
 
 1. **Settle the differences in section 11**, at least the graph format, node type ids, and the `NodeResult`/`ExecContext` types.
-2. **Implement `advance()`** with a run-row lock (task 55), then merge and skip propagation and final run status.
+2. **Add final run status and `continueOnError`** to `advance()` (task 57).
 3. **LLM adapter** with a mock provider first, one real provider second, then the executors (LLM, Condition, HTTP, Merge, JavaScript).
 4. **Run a real workflow end to end** through the API. Then live status on the canvas, the node inspector, tracing, replay, evals, gated publish.
 5. **Finish the CI gap:** run the API integration tests in GitHub Actions (needs a Postgres service and migrations).

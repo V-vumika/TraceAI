@@ -10,6 +10,7 @@ export type GraphEdge = {
   id: string;
   source: string;
   target: string;
+  sourceHandle?: string | null | undefined;
 };
 
 export type Graph = {

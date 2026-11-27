@@ -46,7 +46,7 @@
 - [x] **43.** NodeResult, ExecContext, StepError types
 - [x] **44.** Compiler: validate, cycle check, topological order, adjacency maps
 - [x] **45.** Tests: linear, diamond, branch, invalid cycle
-- [x] **46.** Safe {{ }} resolver (no eval)
+- [x] **46.** Safe {{ }} resolver (no eval) 
 - [x] **47.** Whitelist functions: json, upper, lower, length, default, now
 - [x] **48.** Clear errors naming node and path
 - [x] **49.** Unit tests
@@ -55,8 +55,8 @@
 - [x] **52.** Worker claim: UPDATE ... WHERE status='queued' RETURNING
 - [x] **53.** Graph cache in Redis
 - [x] **54.** Conditional-UPDATE state transitions
-- [ ] **55.** advance() with SELECT ... FOR UPDATE
-- [ ] **56.** Merge all/any + skip propagation
+- [x] **55.** advance() with SELECT ... FOR UPDATE
+- [x] **56.** Merge all/any + skip propagation
 - [ ] **57.** Final run status + continue-on-error
 - [ ] **58.** LLM adapter interface
 - [ ] **59.** Mock provider (latency + error rate)

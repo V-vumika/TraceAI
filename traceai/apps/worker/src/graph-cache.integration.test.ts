@@ -82,7 +82,7 @@ it('loads the pinned graph on a worker miss and serves the compiled maps on a hi
   const ttl = await redis.ttl(key);
   expect(ttl).toBeGreaterThan(0);
   expect(ttl).toBeLessThanOrEqual(3600);
-  const revision = await redis.hget(key, 'revision');
+  const revision = await redis.hget(key, 'revision-v2');
   expect(revision).toBeTruthy();
   const source = vi.fn();
   expect(await cachedGraph(redis, versionId, revision!, source)).toEqual(expected);
@@ -119,11 +119,16 @@ it('rolls the claim back when the published graph cannot compile', async () => {
   }
 }, 60000);
 
-it('recovers from an unreadable or expired cache entry', async () => {
+it('recovers from an unreadable, old-format, or expired cache entry', async () => {
   const expected = await load();
-  await redis.hset(key, 'compiled-v1', 'not valid JSON');
+  await redis.hset(key, 'compiled-v2', 'not valid JSON');
   expect(await load()).toEqual(expected);
-  expect(await redis.hget(key, 'compiled-v1')).not.toBe('not valid JSON');
+  expect(await redis.hget(key, 'compiled-v2')).not.toBe('not valid JSON');
+  const revision = await redis.hget(key, 'revision-v2');
+  await redis.hdel(key, 'compiled-v2', 'revision-v2');
+  await redis.hset(key, 'revision', revision!, 'compiled-v1', JSON.stringify([['old', [], []]]));
+  expect(await load()).toEqual(expected);
+  expect(await redis.hget(key, 'compiled-v2')).toBeTruthy();
   await redis.expire(key, 0);
   expect(await load()).toEqual(expected);
   expect(await redis.ttl(key)).toBeGreaterThan(0);
@@ -147,7 +152,7 @@ it('isolates draft edits and invalidates a changed or deleted published version'
       .insert(workflowVersions)
       .values({ id, workflowId, version: 2, definition: definition('first') });
     const first = await read();
-    const originalRevision = await redis.hget(versionKey, 'revision');
+    const originalRevision = await redis.hget(versionKey, 'revision-v2');
     await db
       .update(workflows)
       .set({ draftGraph: definition('draft-only') })
@@ -158,7 +163,7 @@ it('isolates draft edits and invalidates a changed or deleted published version'
       .set({ definition: definition('second') })
       .where(eq(workflowVersions.id, id));
     expect(await read()).toEqual(compileGraph(definition('second')));
-    expect(await redis.hget(versionKey, 'revision')).not.toBe(originalRevision);
+    expect(await redis.hget(versionKey, 'revision-v2')).not.toBe(originalRevision);
     expect(await load()).toEqual(compileGraph(definition('wait')));
     await db.delete(workflowVersions).where(eq(workflowVersions.id, id));
     await expect(read()).rejects.toThrow(id);

@@ -19,6 +19,7 @@ const claimed: ClaimedStep = {
   nodeId: job.nodeId,
   iteration: job.iteration,
   status: 'running',
+  branch: null,
   startedAt: new Date(),
   createdAt: new Date(),
   finishedAt: null,
@@ -36,7 +37,13 @@ describe('step job processor', () => {
 
   it('calls the handler with the returned row and waits for its outcome', async () => {
     vi.mocked(claimStep).mockResolvedValue(claimed);
-    const graph = { topologicalOrder: ['step'], parents: new Map(), children: new Map() };
+    const graph = {
+      topologicalOrder: ['step'],
+      parents: new Map(),
+      children: new Map(),
+      dependencies: new Map(),
+      mergeAny: new Set<string>(),
+    };
     loadGraph.mockResolvedValue(graph);
     const failure = new Error('handler failed');
     const handler = vi.fn().mockRejectedValue(failure);

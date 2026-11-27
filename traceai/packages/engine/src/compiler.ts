@@ -1,9 +1,13 @@
 import { validateGraph, type Graph, type GraphProblem } from '@traceai/nodes';
 
+export type Dependency = { source: string; sourceHandle: string | null };
+
 export type CompiledGraph = {
   topologicalOrder: readonly string[];
   parents: ReadonlyMap<string, readonly string[]>;
   children: ReadonlyMap<string, readonly string[]>;
+  dependencies: ReadonlyMap<string, readonly Dependency[]>;
+  mergeAny: ReadonlySet<string>;
 };
 
 type CompilerProblem = Omit<GraphProblem, 'code'> & {
@@ -50,14 +54,30 @@ export function compileGraph(graph: Graph): CompiledGraph {
 
   const incoming = new Map<string, Set<string>>();
   const outgoing = new Map<string, Set<string>>();
-  for (const id of nodeIds) {
+  const dependencies = new Map<string, Dependency[]>();
+  const mergeAny = new Set<string>();
+  for (const { id, data } of graph.nodes) {
     incoming.set(id, new Set());
     outgoing.set(id, new Set());
+    dependencies.set(id, []);
+    const config = data.config;
+    if (
+      data.nodeType === 'merge' &&
+      typeof config === 'object' &&
+      config !== null &&
+      'mode' in config &&
+      config.mode === 'any'
+    ) {
+      mergeAny.add(id);
+    }
   }
   // Multiple handles between the same pair still represent one dependency.
-  for (const { source, target } of graph.edges) {
+  for (const { source, target, sourceHandle } of graph.edges) {
     incoming.get(target)?.add(source);
     outgoing.get(source)?.add(target);
+    dependencies
+      .get(target)
+      ?.push({ source, sourceHandle: typeof sourceHandle === 'string' ? sourceHandle : null });
   }
 
   const parents = new Map([...incoming].map(([id, links]) => [id, [...links]]));
@@ -77,5 +97,5 @@ export function compileGraph(graph: Graph): CompiledGraph {
     }
   }
 
-  return { topologicalOrder, parents, children };
+  return { topologicalOrder, parents, children, dependencies, mergeAny };
 }

@@ -1,5 +1,5 @@
 import { db, stepRuns, workflowRuns } from "@traceai/db";
-import { compileGraph, GraphCompilationError, type StepJob } from "@traceai/engine";
+import { compileGraph, GraphCompilationError, nextPendingStatus, type StepJob } from "@traceai/engine";
 import type { Graph } from "@traceai/nodes";
 
 export async function persistRun(
@@ -31,6 +31,7 @@ export async function persistRun(
 
     const now = new Date();
     const readySteps: StepJob[] = [];
+    const completedSteps = new Map([[trigger.id, { status: "succeeded", branch: null }]]);
     await tx.insert(stepRuns).values(
       compiled.topologicalOrder.map((nodeId) => {
         const step = { runId: run.id, nodeId, iteration: 0 };
@@ -44,10 +45,9 @@ export async function persistRun(
             finishedAt: now,
           };
         }
-        const parents = compiled.parents.get(nodeId);
-        const ready = parents?.length === 1 && parents[0] === trigger.id;
-        if (ready) readySteps.push({ ...step, attempt: 1 });
-        return { ...step, status: ready ? "queued" : "pending" };
+        const status = nextPendingStatus(compiled, nodeId, completedSteps);
+        if (status === "queued") readySteps.push({ ...step, attempt: 1 });
+        return { ...step, status };
       }),
     );
 

@@ -134,14 +134,14 @@ flowchart TB
 │   │   └── lib/                # api client, websocket client, stores
 │   ├── api/                    # Fastify API + WebSocket gateway
 │   │   └── src/{routes,services,auth,ws,plugins}
-│   ├── worker/                 # BullMQ consumers → engine
+│   ├── worker/                 # BullMQ consumers and run scheduling (advance)
 │   ├── scheduler/              # cron triggers, reconciler, alert evaluator, retention
 │   └── ingest/                 # OTLP receiver + trace writer
 ├── packages/
-│   ├── engine/                 # graph compiler, state machine, advance(), retry policy, expression resolver
+│   ├── engine/                 # graph compiler, retry policy, expression resolver, job dispatcher
 │   ├── nodes/                  # node definitions: schema + executor per node type
 │   ├── llm/                    # provider adapters, pricing table, token accounting
-│   ├── db/                     # Drizzle schema, migrations, query helpers
+│   ├── db/                     # Drizzle schema, migrations, query helpers, state transitions
 │   ├── clickhouse/             # ClickHouse schema, migrations, query builders
 │   ├── telemetry/              # OTel setup, span helpers, semantic attribute constants
 │   ├── sandbox/                # isolated-vm runner, python sandbox client
@@ -245,6 +245,7 @@ runs(id uuid pk, workspace_id fk, workflow_id fk, version_id fk,
 step_runs(id uuid pk, run_id fk, node_id text, node_type text,
           iteration int default 0,                                    -- loop iteration
           status text,      -- pending|queued|running|retrying|waiting|succeeded|failed|skipped|cancelled
+          branch text null,                                          -- selected outgoing handle on success
           attempt int default 0,
           input jsonb null,                                          -- resolved input snapshot
           output jsonb null, output_ref text null,                    -- S3 key if large
@@ -482,10 +483,11 @@ export type NodeResult<T> =
 
 | Component | Responsibility |
 |-----------|----------------|
-| `compiler` | Validate graph, detect cycles (only allowed inside Loop sub-graphs), topological order, adjacency maps, pre-parse expressions |
+| `compiler` | Validate the graph and compute topological order, adjacency, branch handles, and merge modes. The Redis cache stores this scheduling metadata with the graph. |
+| `scheduling` | Shared readiness rules for initial trigger dispatch and worker advancement. |
 | `expression` | Safe template resolver for `{{ }}` (JSONPath-like access + a small whitelisted function set: `json`, `upper`, `lower`, `length`, `default`, `now`); **no `eval`** |
 | `state-machine` (`packages/db`) | Defines allowed run and step transitions and persists each with one status-guarded `UPDATE ... RETURNING`. The helpers accept the database connection or an existing transaction. |
-| `advance` | Scheduling algorithm (see `workflow.md` B5) — runs inside the step-completion transaction |
+| `advance` (`apps/worker`) | Locks the run row, saves the step result and branch, and queues ready children or skips unreachable ones. Returns jobs to dispatch after commit. See `workflow.md` B5. |
 | `retry` | Error classification, backoff with jitter, Retry-After support |
 | `dispatcher` | Enqueues ready steps after commit; applies workspace concurrency and provider rate limits |
 | `reconciler` | Repairs drift between PostgreSQL state and the queue (called by the scheduler) |

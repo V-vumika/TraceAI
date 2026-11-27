@@ -59,7 +59,12 @@ export async function transitionStep(
   key: StepKey,
   from: StepStatus,
   to: StepStatus,
-  { input, output, error }: { input?: unknown; output?: unknown; error?: unknown } = {},
+  {
+    input,
+    output,
+    error,
+    branch,
+  }: { input?: unknown; output?: unknown; error?: unknown; branch?: string | null } = {},
 ) {
   checkTransition(stepTransitions[from], from, to);
   const [row] = await connection
@@ -69,6 +74,7 @@ export async function transitionStep(
       input,
       output,
       error,
+      branch,
       startedAt: to === 'running' ? sql`now()` : undefined,
       finishedAt: stepTransitions[to].length === 0 ? sql`now()` : undefined,
     })

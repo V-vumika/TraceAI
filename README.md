@@ -47,8 +47,10 @@ traceai/
 ### 1. Install dependencies
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 ```
+
+CI uses the same command. After adding a workspace package or changing its dependencies, run `pnpm install` from `traceai/` and commit the updated `traceai/pnpm-lock.yaml` with the `package.json` changes.
 
 ### 2. Create your environment file
 

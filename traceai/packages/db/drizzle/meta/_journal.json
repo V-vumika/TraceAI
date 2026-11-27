@@ -43,6 +43,13 @@
       "when": 1794314579160,
       "tag": "0005_nappy_rockslide",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795761379289,
+      "tag": "0006_step_branch",
+      "breakpoints": true
     }
   ]
 }

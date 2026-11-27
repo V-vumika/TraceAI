@@ -224,7 +224,7 @@ sequenceDiagram
         W->>X: execute(input, config, ctx) with timeout
         X-->>W: output | error
         W->>OT: End span (+ child spans for LLM/HTTP)
-        W->>PG: BEGIN; UPDATE step=succeeded, output; advance run (B5); COMMIT
+        W->>PG: Lock run, save step result, and queue eligible children in one transaction (B5)
         W->>Q: Enqueue newly ready steps
         W->>PS: Publish step/run status events (live UI)
     end
@@ -232,31 +232,26 @@ sequenceDiagram
 
 ### B5. Scheduling Algorithm ("advance")
 
-Called inside the same transaction that marks a step terminal (`succeeded` / `failed` / `skipped`).
+`advance()` locks the run before saving a result and checking children in the same iteration. PostgreSQL stores the selected branch in `step_runs.branch` alongside the step output. When a result names a branch, only edges with that `sourceHandle` or without a handle stay active. The stored choice lets later completions recheck a child with multiple parents.
+
+- **Merge `all` (default) and ordinary nodes** queue when at least one active parent has succeeded and every other input either succeeded or was skipped.
+- **Merge `any`** queues as soon as one active parent succeeds. Later completions leave an already queued merge alone.
+- A pending node is skipped when every input comes from an untaken edge or a skipped parent. This check continues through downstream nodes in the same transaction.
+
+The worker publishes ready jobs after commit. If publishing fails, the steps stay queued in PostgreSQL for the planned reconciler (B7). The pseudocode includes the planned run status handling.
 
 ```text
 function advance(runId, completedNodeId):
     lock run row (SELECT ... FOR UPDATE)            // serialize advances per run
     graph = load version graph
-    for child in graph.children(completedNodeId):
+    affected = children of completedNodeId
+    for child in affected, in topological order:
         if child.status != pending: continue
-        parents = graph.parents(child)
-
-        if child.type == MERGE and child.mode == "any":
-            ready = any(p.status == succeeded for p in parents)
-        else:
-            if any(p.status in [pending, queued, running, retrying, waiting] for p in parents):
-                continue                              // still waiting on a parent
-            ready = all(p.status in [succeeded, skipped] for p in parents)
-                    and any(p.status == succeeded for p in parents)
-
-        if all(p.status == skipped for p in parents):
-            mark child skipped; advance(runId, child)  // skip propagation
-        elif ready:
-            mark child queued; collect for enqueue
-
-    // branch handling: a Condition/Switch step's output names the taken edge(s)
-    // edges not taken → their target nodes are marked skipped (if no other live parent)
+        inputs = parent states with untaken edges treated as skipped
+        if every input is skipped:
+            mark child skipped and add its children to the affected set
+        elif at least one input succeeded and (mode is any or every input succeeded or was skipped):
+            mark child queued and collect its job
 
     if no steps in [pending, queued, running, retrying, waiting]:
         run.status = failed if any unhandled failed step else succeeded

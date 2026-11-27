@@ -91,6 +91,7 @@ import {
   nodeId: text("node_id").notNull(),
   iteration: integer("iteration").notNull().default(0),
   status: text("status").notNull(),
+  branch: text("branch"),
   input: jsonb("input"),
   output: jsonb("output"),
   error: jsonb("error"),

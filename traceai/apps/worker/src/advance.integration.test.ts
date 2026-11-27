@@ -26,6 +26,7 @@ import { processStepJob } from './worker';
 const workspaceId = randomUUID();
 const workflowId = randomUUID();
 const versionId = randomUUID();
+const routingVersionId = randomUUID();
 const runIds: string[] = [];
 const redis = createGraphRedis(process.env);
 const definition = {
@@ -88,11 +89,11 @@ afterAll(async () => {
     await db.transaction(async (tx) => {
       await tx.delete(stepRuns).where(inArray(stepRuns.runId, runIds));
       await tx.delete(workflowRuns).where(inArray(workflowRuns.id, runIds));
-      await tx.delete(workflowVersions).where(eq(workflowVersions.id, versionId));
+      await tx.delete(workflowVersions).where(eq(workflowVersions.workflowId, workflowId));
       await tx.delete(workflows).where(eq(workflows.id, workflowId));
       await tx.delete(workspaces).where(eq(workspaces.id, workspaceId));
     });
-    await redis.del(`graph:${versionId}`).catch(() => undefined);
+    await redis.del(`graph:${versionId}`, `graph:${routingVersionId}`).catch(() => undefined);
   } finally {
     redis.disconnect();
     await client.end();
@@ -204,3 +205,87 @@ it('saves in-flight results and step errors that cannot schedule children', asyn
     ]),
   );
 }, 30000);
+
+it('persists the branch, skips descendants, and schedules any and all at the right times', async () => {
+  const routing = {
+    nodes: [
+      { id: 'trigger', data: { nodeType: 'manual-trigger' } },
+      { id: 'choose', data: { nodeType: 'condition', config: { expression: 'true' } } },
+      ...['other', 'selected', 'rejected', 'tail', 'shared'].map((id) => ({
+        id,
+        data: { nodeType: 'delay' },
+      })),
+      { id: 'all', data: { nodeType: 'merge' } },
+      ...['any', 'skip-any'].map((id) => ({
+        id,
+        data: { nodeType: 'merge', config: { mode: 'any' } },
+      })),
+    ],
+    edges: [
+      { id: '1', source: 'trigger', target: 'choose' },
+      { id: '2', source: 'trigger', target: 'other' },
+      { id: '3', source: 'choose', target: 'selected', sourceHandle: 'true' },
+      { id: '4', source: 'choose', target: 'rejected', sourceHandle: 'false' },
+      { id: '5', source: 'choose', target: 'shared', sourceHandle: 'false' },
+      { id: '6', source: 'rejected', target: 'tail' },
+      { id: '7', source: 'tail', target: 'skip-any' },
+      { id: '8', source: 'tail', target: 'all' },
+      { id: '9', source: 'selected', target: 'all' },
+      { id: '10', source: 'selected', target: 'any' },
+      { id: '11', source: 'other', target: 'any' },
+      { id: '12', source: 'other', target: 'shared' },
+    ],
+  };
+  const runId = randomUUID();
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(workflowVersions)
+      .values({ id: routingVersionId, workflowId, version: 2, definition: routing });
+    await tx
+      .insert(workflowRuns)
+      .values({ id: runId, workflowId, workflowVersionId: routingVersionId, status: 'queued' });
+    await tx.insert(stepRuns).values(
+      routing.nodes.map(({ id: nodeId }) => ({
+        runId,
+        nodeId,
+        status:
+          nodeId === 'trigger'
+            ? 'succeeded'
+            : ['choose', 'other'].includes(nodeId)
+              ? 'queued'
+              : 'pending',
+      })),
+    );
+  });
+  runIds.push(runId);
+  const dispatch = { enqueue: vi.fn().mockResolvedValue(undefined) };
+  await processStepJob(
+    job(runId, 'choose'),
+    redis,
+    () => ({ ...success, branch: 'true' }),
+    dispatch,
+  );
+  const first = await readSteps(runId);
+  expect(first).toContainEqual(
+    expect.objectContaining({ nodeId: 'choose', branch: 'true', output: success.output }),
+  );
+  expect(
+    first
+      .filter(({ status }) => status === 'skipped')
+      .map(({ nodeId }) => nodeId)
+      .sort(),
+  ).toEqual(['rejected', 'skip-any', 'tail']);
+  expect(first.find(({ nodeId }) => nodeId === 'shared')?.status).toBe('pending');
+    expect(dispatch.enqueue).toHaveBeenCalledExactlyOnceWith([job(runId, 'selected')]);
+
+  await processStepJob(job(runId, 'other'), redis, () => success, dispatch);
+  expect(dispatch.enqueue).toHaveBeenNthCalledWith(
+    2,
+    expect.arrayContaining([job(runId, 'any'), job(runId, 'shared')]),
+  );
+  expect((await readSteps(runId)).find(({ nodeId }) => nodeId === 'all')?.status).toBe('pending');
+
+  await processStepJob(job(runId, 'selected'), redis, () => success, dispatch);
+  expect(dispatch.enqueue).toHaveBeenCalledTimes(3);
+  expect(dispatch.enqueue).toHaveBeenNthCalledWith(3, [job(runId, 'all')]);
+}, 60000);
