@@ -15,8 +15,15 @@ export function nextPendingStatus(
   for (const { source, sourceHandle } of dependencies) {
     const step = steps.get(source);
     if (step?.status === 'skipped') continue;
-    if (step?.status === 'succeeded') {
-      if (step.branch !== null && sourceHandle !== null && step.branch !== sourceHandle) continue;
+    const toleratedFailure = step?.status === 'failed' && graph.continueOnError.has(source);
+    if (step?.status === 'succeeded' || toleratedFailure) {
+      if (
+        step.status === 'succeeded' &&
+        step.branch !== null &&
+        sourceHandle !== null &&
+        step.branch !== sourceHandle
+      )
+        continue;
       hasSuccess = true;
     } else {
       hasUnresolved = true;

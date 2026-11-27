@@ -23,13 +23,21 @@ export async function persistRun(
   }
 
   return db.transaction(async (tx) => {
+    const now = new Date();
+    const triggerOnly = compiled.topologicalOrder.length === 1;
     const [run] = await tx
       .insert(workflowRuns)
-      .values({ workflowId, workflowVersionId: versionId, status: "queued", input })
+      .values({
+        workflowId,
+        workflowVersionId: versionId,
+        status: triggerOnly ? "succeeded" : "queued",
+        input,
+        startedAt: triggerOnly ? now : undefined,
+        finishedAt: triggerOnly ? now : undefined,
+      })
       .returning({ id: workflowRuns.id });
     if (!run) throw new Error("Failed to create workflow run.");
 
-    const now = new Date();
     const readySteps: StepJob[] = [];
     const completedSteps = new Map([[trigger.id, { status: "succeeded", branch: null }]]);
     await tx.insert(stepRuns).values(

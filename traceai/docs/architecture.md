@@ -483,11 +483,11 @@ export type NodeResult<T> =
 
 | Component | Responsibility |
 |-----------|----------------|
-| `compiler` | Validate the graph and compute topological order, adjacency, branch handles, and merge modes. The Redis cache stores this scheduling metadata with the graph. |
+| `compiler` | Validate the graph and compute topological order, adjacency, branch handles, merge modes, and `continueOnError` settings. The Redis cache stores this scheduling metadata with the graph. |
 | `scheduling` | Shared readiness rules for initial trigger dispatch and worker advancement. |
 | `expression` | Safe template resolver for `{{ }}` (JSONPath-like access + a small whitelisted function set: `json`, `upper`, `lower`, `length`, `default`, `now`); **no `eval`** |
 | `state-machine` (`packages/db`) | Defines allowed run and step transitions and persists each with one status-guarded `UPDATE ... RETURNING`. The helpers accept the database connection or an existing transaction. |
-| `advance` (`apps/worker`) | Locks the run row, saves the step result and branch, and queues ready children or skips unreachable ones. Returns jobs to dispatch after commit. See `workflow.md` B5. |
+| `advance` (`apps/worker`) | Locks the run row, saves the step result and branch, and updates child and run status. Returns jobs to dispatch after commit. See `workflow.md` B5. |
 | `retry` | Error classification, backoff with jitter, Retry-After support |
 | `dispatcher` | Enqueues ready steps after commit; applies workspace concurrency and provider rate limits |
 | `reconciler` | Repairs drift between PostgreSQL state and the queue (called by the scheduler) |
@@ -495,7 +495,7 @@ export type NodeResult<T> =
 
 ### 7.3 Concurrency & Correctness
 
-- **Per-run serialization:** `advance()` takes `SELECT ... FOR UPDATE` on the run row, so two parallel branches finishing at the same moment cannot both schedule a merge node.
+- **Per-run serialization:** Worker claims and `advance()` take `SELECT ... FOR UPDATE` on the run row before updating step rows. This prevents duplicate scheduling and prevents a claim from racing with run closure.
 - **Claiming:** `UPDATE step_runs SET status='running', lease_expires_at=now()+interval '60s' WHERE id=$1 AND status='queued' RETURNING *`. Zero rows means another worker owns it, or it's done.
 - **Leases:** workers extend `lease_expires_at` every 20 s for long steps; the reconciler treats an expired lease as a crashed worker.
 - **Job IDs:** `runId:nodeId:iteration:attempt` — BullMQ deduplicates identical job IDs, so a double-enqueue is harmless.

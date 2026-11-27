@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Queue } from 'bullmq';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import {
   client,
@@ -45,6 +45,12 @@ const graph = compileGraph(definition);
 const success: StepCompletion = {
   status: 'success',
   output: { ok: true },
+  logs: [],
+  durationMs: 10,
+};
+const failure: StepCompletion = {
+  status: 'error',
+  error: { code: 'internal', message: 'step failed', retryable: false },
   logs: [],
   durationMs: 10,
 };
@@ -172,20 +178,23 @@ it('enqueues one child after both parents commit, even with concurrent and dupli
   }
 }, 60000);
 
-it('saves in-flight results and step errors that cannot schedule children', async () => {
+it('fails the run and cancels outstanding steps while saving in-flight results', async () => {
   const cancelledId = await seedRun('running', 'succeeded', 'cancelled');
-  const failedId = await seedRun('running', 'succeeded');
-  const error = { code: 'internal', message: 'step failed', retryable: false } as const;
+  const failedId = await seedRun('running', 'running');
+  const outstanding = ['queued', 'waiting', 'retrying'];
+  await db
+    .insert(stepRuns)
+    .values(outstanding.map((status) => ({ runId: failedId, nodeId: status, status })));
   const ready = await db.transaction(async (tx) => [
     ...(await advance(tx, job(cancelledId, 'left'), graph, success)),
-    ...(await advance(tx, job(failedId, 'left'), graph, {
-      status: 'error',
-      error,
-      logs: [],
-      durationMs: 10,
-    })),
+    ...(await advance(tx, job(failedId, 'left'), graph, failure)),
   ]);
   expect(ready).toEqual([]);
+  expect(
+    await db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, cancelledId) }),
+  ).toMatchObject({ status: 'cancelled' });
+  const failedRun = await db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, failedId) });
+  expect(failedRun).toMatchObject({ status: 'failed', finishedAt: expect.any(Date) });
   const pending = expect.objectContaining({ nodeId: 'child', status: 'pending', iteration: 0 });
   expect(await readSteps(cancelledId)).toEqual(
     expect.arrayContaining([
@@ -195,23 +204,67 @@ it('saves in-flight results and step errors that cannot schedule children', asyn
   );
   expect(await readSteps(failedId)).toEqual(
     expect.arrayContaining([
-      pending,
+      ...['child', ...outstanding].map((nodeId) =>
+        expect.objectContaining({
+          nodeId,
+          status: 'cancelled',
+          finishedAt: expect.any(Date),
+        }),
+      ),
+      expect.objectContaining({ nodeId: 'child', iteration: 1, status: 'cancelled' }),
+      expect.objectContaining({ nodeId: 'right', status: 'running' }),
       expect.objectContaining({
         nodeId: 'left',
         status: 'failed',
-        error,
+        error: failure.error,
         finishedAt: expect.any(Date),
       }),
     ]),
   );
+  expect(await db.transaction((tx) => advance(tx, job(failedId, 'right'), graph, success))).toEqual(
+    [],
+  );
+  expect(await readSteps(failedId)).toContainEqual(
+    expect.objectContaining({ nodeId: 'right', status: 'succeeded' }),
+  );
+  expect(await db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, failedId) })).toEqual(
+    failedRun,
+  );
 }, 30000);
 
-it('persists the branch, skips descendants, and schedules any and all at the right times', async () => {
+it('finishes only after the last iteration and ignores a duplicate completion', async () => {
+  const runId = await seedRun('succeeded', 'succeeded');
+  await db
+    .update(stepRuns)
+    .set({ status: 'running' })
+    .where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, 'child')));
+  const first = job(runId, 'child');
+  const last = { ...first, iteration: 1 };
+
+  expect(await db.transaction((tx) => advance(tx, first, graph, success))).toEqual([]);
+  expect(
+    await db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, runId) }),
+  ).toMatchObject({
+    status: 'running',
+    finishedAt: null,
+  });
+  expect(await db.transaction((tx) => advance(tx, last, graph, success))).toEqual([]);
+  const finished = await db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, runId) });
+  expect(finished).toMatchObject({ status: 'succeeded', finishedAt: expect.any(Date) });
+
+  expect(await db.transaction((tx) => advance(tx, last, graph, failure))).toEqual([]);
+  expect(await db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, runId) })).toEqual(
+    finished,
+  );
+}, 30000);
+
+it('completes a run with skipped branches and a tolerated failure', async () => {
   const routing = {
     nodes: [
       { id: 'trigger', data: { nodeType: 'manual-trigger' } },
       { id: 'choose', data: { nodeType: 'condition', config: { expression: 'true' } } },
-      ...['other', 'selected', 'rejected', 'tail', 'shared'].map((id) => ({
+      { id: 'other', data: { nodeType: 'delay', settings: { continueOnError: true } } },
+      ...['selected', 'rejected', 'tail', 'shared'].map((id) => ({
         id,
         data: { nodeType: 'delay' },
       })),
@@ -276,16 +329,39 @@ it('persists the branch, skips descendants, and schedules any and all at the rig
       .sort(),
   ).toEqual(['rejected', 'skip-any', 'tail']);
   expect(first.find(({ nodeId }) => nodeId === 'shared')?.status).toBe('pending');
-    expect(dispatch.enqueue).toHaveBeenCalledExactlyOnceWith([job(runId, 'selected')]);
+  expect(dispatch.enqueue).toHaveBeenCalledExactlyOnceWith([job(runId, 'selected')]);
 
-  await processStepJob(job(runId, 'other'), redis, () => success, dispatch);
+  await processStepJob(job(runId, 'other'), redis, () => failure, dispatch);
   expect(dispatch.enqueue).toHaveBeenNthCalledWith(
     2,
     expect.arrayContaining([job(runId, 'any'), job(runId, 'shared')]),
   );
-  expect((await readSteps(runId)).find(({ nodeId }) => nodeId === 'all')?.status).toBe('pending');
+  expect(await readSteps(runId)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ nodeId: 'all', status: 'pending' }),
+      expect.objectContaining({
+        nodeId: 'other',
+        status: 'failed',
+        error: failure.error,
+        output: { error: failure.error },
+      }),
+    ]),
+  );
 
   await processStepJob(job(runId, 'selected'), redis, () => success, dispatch);
   expect(dispatch.enqueue).toHaveBeenCalledTimes(3);
   expect(dispatch.enqueue).toHaveBeenNthCalledWith(3, [job(runId, 'all')]);
+
+  await Promise.all(
+    ['any', 'all', 'shared'].map((nodeId) =>
+      processStepJob(job(runId, nodeId), redis, () => success, dispatch),
+    ),
+  );
+  expect(
+    await db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, runId) }),
+  ).toMatchObject({
+    status: 'succeeded',
+    finishedAt: expect.any(Date),
+  });
+  expect(dispatch.enqueue).toHaveBeenCalledTimes(3);
 }, 60000);

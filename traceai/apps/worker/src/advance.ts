@@ -1,5 +1,12 @@
-import { and, eq } from 'drizzle-orm';
-import { type db, stepRuns, transitionStep, workflowRuns } from '@traceai/db';
+import { eq } from 'drizzle-orm';
+import {
+  cancelRemainingSteps,
+  lockRun,
+  stepRuns,
+  transitionRun,
+  transitionStep,
+  type RunTransaction,
+} from '@traceai/db';
 import {
   nextPendingStatus,
   type CompiledGraph,
@@ -7,20 +14,17 @@ import {
   type StepJob,
 } from '@traceai/engine';
 
-type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type StepCompletion = Extract<NodeResult, { status: 'success' | 'error' }>;
+type StepState = Pick<typeof stepRuns.$inferSelect, 'nodeId' | 'iteration' | 'status' | 'branch'>;
+const terminalStepStatuses = new Set(['succeeded', 'failed', 'skipped', 'cancelled']);
 
 export async function advance(
-  tx: Transaction,
+  tx: RunTransaction,
   job: StepJob,
   graph: CompiledGraph | undefined,
   result: StepCompletion,
 ): Promise<StepJob[]> {
-  const [run] = await tx
-    .select({ status: workflowRuns.status })
-    .from(workflowRuns)
-    .where(eq(workflowRuns.id, job.runId))
-    .for('update');
+  const run = await lockRun(tx, job.runId);
   if (!run) return [];
 
   const completed =
@@ -29,28 +33,61 @@ export async function advance(
           output: result.output,
           branch: result.branch ?? null,
         })
-      : await transitionStep(tx, job, 'running', 'failed', { error: result.error });
-  if (!completed || result.status === 'error' || run.status !== 'running' || !graph) return [];
-
-  const children = graph.children.get(job.nodeId);
-  if (!children?.length) return [];
+      : await transitionStep(tx, job, 'running', 'failed', {
+          error: result.error,
+          branch: null,
+          output: graph?.continueOnError.has(job.nodeId) ? { error: result.error } : undefined,
+        });
+  if (!completed || run.status !== 'running') return [];
 
   const steps = await tx
-    .select({ nodeId: stepRuns.nodeId, status: stepRuns.status, branch: stepRuns.branch })
+    .select({
+      nodeId: stepRuns.nodeId,
+      iteration: stepRuns.iteration,
+      status: stepRuns.status,
+      branch: stepRuns.branch,
+    })
     .from(stepRuns)
-    .where(and(eq(stepRuns.runId, job.runId), eq(stepRuns.iteration, job.iteration)));
-  const states = new Map(steps.map(({ nodeId, status, branch }) => [nodeId, { status, branch }]));
+    .where(eq(stepRuns.runId, job.runId));
+  if (
+    steps.some(({ nodeId, status }) => status === 'failed' && !graph?.continueOnError.has(nodeId))
+  ) {
+    await transitionRun(tx, job.runId, 'running', 'failed');
+    await cancelRemainingSteps(tx, job.runId);
+    return [];
+  }
+
+  const ready = graph ? await scheduleChildren(tx, job, graph, steps) : [];
+  if (steps.every(({ status }) => terminalStepStatuses.has(status))) {
+    await transitionRun(tx, job.runId, 'running', 'succeeded');
+  }
+  return ready;
+}
+
+async function scheduleChildren(
+  tx: RunTransaction,
+  job: StepJob,
+  graph: CompiledGraph,
+  steps: StepState[],
+) {
+  const children = graph.children.get(job.nodeId);
+  if (!children?.length) return [];
+  const states = new Map(
+    steps.filter(({ iteration }) => iteration === job.iteration).map((step) => [step.nodeId, step]),
+  );
 
   const ready: StepJob[] = [];
   const candidates = new Set(children);
   for (const nodeId of graph.topologicalOrder) {
-    if (!candidates.has(nodeId) || states.get(nodeId)?.status !== 'pending') continue;
+    const step = states.get(nodeId);
+    if (!candidates.has(nodeId) || step?.status !== 'pending') continue;
     const status = nextPendingStatus(graph, nodeId, states);
     if (status === 'pending') continue;
 
     const next = { runId: job.runId, nodeId, iteration: job.iteration, attempt: 1 };
     if (!(await transitionStep(tx, next, 'pending', status))) continue;
-    states.set(nodeId, { status, branch: null });
+    // Keep the run-wide snapshot in sync for the terminal-state check.
+    step.status = status;
     if (status === 'queued') {
       ready.push(next);
     } else {

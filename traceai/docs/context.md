@@ -226,8 +226,8 @@ Source: [numbered roadmap](./traceai-roadmap-numbered%20.md). Task numbers follo
 | | 6. Autosave of `draft_graph`, reload check | Done in code with automated tests. Undo/redo skipped (optional) |
 | **3** | 1. `NodeResult`/`ExecContext`/`StepError` types, compiler, compiler tests | Done (tasks 43–45) |
 | | 2. Safe expression resolver and tests | Done (tasks 46–49) |
-| | 3. Run creation, job dispatch, worker claims, graph cache, guarded transitions, and `advance()` | Done through task 56, including merge modes and skip propagation. Task 57 covers final run status and `continueOnError`. |
-| | Remaining execution work | Final run status, `continueOnError`, and node executors are pending. |
+| | 3. Run creation, job dispatch, worker claims, graph cache, guarded transitions, and `advance()` | Done through task 57, including final run status and `continueOnError`. Task 58 is the LLM adapter interface. |
+| | Remaining execution work | LLM adapter, node executors, and broader scheduling tests are pending. |
 | **4 to 8** | Reliability, security, live UI, tracing, metrics, replay, evals, proof, ship | Not started |
 
 ### Planned order for the demo
@@ -272,9 +272,9 @@ Editor details:
 
 ### Worker (`apps/worker`)
 
-The worker claims a queued step by run, node, and iteration. It loads the compiled graph through Redis and starts the run if the run is still queued. These database changes share a transaction, so a graph load failure rolls the claim back.
+The worker locks the run before claiming a step by run, node, and iteration. It accepts queued or running runs, loads the compiled graph through Redis, and starts a queued run. A graph load failure rolls the claim back.
 
-When a handler returns a result, `advance()` locks the run row and saves the result, including any selected branch. Pending steps are queued or skipped using the [workflow readiness rules](./workflow.md#b5-scheduling-algorithm-advance). The worker publishes new jobs to BullMQ after commit. Run creation uses the same rules to determine what the manual trigger can start. The default worker handler logs claims, and node executors are planned for task 61.
+When a handler returns a result, `advance()` locks the run, saves the result, and updates child and run status using the [workflow readiness rules](./workflow.md#b5-scheduling-algorithm-advance). An unhandled failure closes the run and cancels outstanding work outside the running steps. A tolerated failure passes `{ error }` downstream. The worker publishes new jobs after commit. The API completes trigger-only runs at creation. The default worker handler logs claims, and task 61 covers node executors.
 
 ### Packages
 - **`@traceai/db`:** tables `users`, `workspaces`, `memberships`, `workflows` (with `draft_graph`), `workflow_versions`, `workflow_runs`, `step_runs`. Run `pnpm db:migrate` to apply `0006_step_branch`, which adds the nullable branch column to existing databases. Seed script: `pnpm --filter @traceai/db seed`.
@@ -385,10 +385,9 @@ Common problems:
 ## 14. Next steps
 
 1. **Settle the differences in section 11**, at least the graph format, node type ids, and the `NodeResult`/`ExecContext` types.
-2. **Add final run status and `continueOnError`** to `advance()` (task 57).
-3. **LLM adapter** with a mock provider first, one real provider second, then the executors (LLM, Condition, HTTP, Merge, JavaScript).
-4. **Run a real workflow end to end** through the API. Then live status on the canvas, the node inspector, tracing, replay, evals, gated publish.
-5. **Finish the CI gap:** run the API integration tests in GitHub Actions (needs a Postgres service and migrations).
+2. **Define the LLM adapter interface** (task 58), then add a mock provider, a real provider, and node executors.
+3. **Run a real workflow end to end** through the API. Then live status on the canvas, the node inspector, tracing, replay, evals, gated publish.
+4. **Finish the CI gap:** run the API integration tests in GitHub Actions (needs a Postgres service and migrations).
 
 ---
 

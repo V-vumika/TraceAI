@@ -198,6 +198,8 @@ sequenceDiagram
     API-->>C: 202 { runId }
 ```
 
+A trigger-only workflow finishes as `succeeded` in this transaction. It produces no step jobs.
+
 > If enqueuing fails after COMMIT, the **reconciler** (B7) finds `queued` steps with no job and enqueues them. Postgres is the source of truth; Redis is only the delivery mechanism.
 
 ### B4. Step Execution Flow (worker)
@@ -212,8 +214,8 @@ sequenceDiagram
     participant PS as Redis Pub/Sub
 
     Q->>W: Job {runId, nodeId, iteration, attempt}
-    W->>PG: UPDATE step SET status=running WHERE status=queued (claim)
-    alt claim failed (already handled)
+    W->>PG: Lock run and claim queued step if the run is queued or running
+    alt step unavailable or run is inactive
         W->>Q: ack job, do nothing
     else claimed
         W->>PG: Load run, version graph, upstream outputs
@@ -234,37 +236,39 @@ sequenceDiagram
 
 `advance()` locks the run before saving a result and checking children in the same iteration. PostgreSQL stores the selected branch in `step_runs.branch` alongside the step output. When a result names a branch, only edges with that `sourceHandle` or without a handle stay active. The stored choice lets later completions recheck a child with multiple parents.
 
-- **Merge `all` (default) and ordinary nodes** queue when at least one active parent has succeeded and every other input either succeeded or was skipped.
-- **Merge `any`** queues as soon as one active parent succeeds. Later completions leave an already queued merge alone.
+- **Merge `all` (default) and ordinary nodes** queue when at least one active input is satisfied and every other input is satisfied or skipped.
+- **Merge `any`** queues as soon as any active input is satisfied. Later completions leave an already queued merge alone.
 - A pending node is skipped when every input comes from an untaken edge or a skipped parent. This check continues through downstream nodes in the same transaction.
 
-The worker publishes ready jobs after commit. If publishing fails, the steps stay queued in PostgreSQL for the planned reconciler (B7). The pseudocode includes the planned run status handling.
+The worker publishes ready jobs after commit. If publishing fails, the steps stay queued in PostgreSQL for the planned reconciler (B7).
 
 ```text
 function advance(runId, completedNodeId):
     lock run row (SELECT ... FOR UPDATE)            // serialize advances per run
-    graph = load version graph
+    save the step result if the step is still running
+    if the result was stale or the run is inactive: return []
+    if any step failed without continueOnError:
+        mark run failed and cancel pending, queued, retrying, and waiting steps
+        return []
+
     affected = children of completedNodeId
     for child in affected, in topological order:
         if child.status != pending: continue
         inputs = parent states with untaken edges treated as skipped
         if every input is skipped:
             mark child skipped and add its children to the affected set
-        elif at least one input succeeded and (mode is any or every input succeeded or was skipped):
+        elif at least one input is satisfied and (mode is any or every input is satisfied or skipped):
             mark child queued and collect its job
 
-    if no steps in [pending, queued, running, retrying, waiting]:
-        run.status = failed if any unhandled failed step else succeeded
-        run.finished_at = now()
-    elif all active steps are waiting:
-        run.status = waiting
+    if every step in every iteration is terminal:
+        mark run succeeded and record finished_at
 
     return stepsToEnqueue    // enqueued AFTER commit
 ```
 
 **Failure handling:**
-- If a step fails and `continueOnError = false` → the run is marked `failed`; remaining `pending`/`queued` steps are `cancelled`; in-flight steps finish but trigger no further scheduling.
-- If `continueOnError = true` → the step is `failed`, but its output is `{ error: {...} }` and downstream continues (the step counts as "satisfied" for its children).
+- `continueOnError` defaults to `false`. An unhandled failure records the run's finish time and cancels its pending, queued, retrying, and waiting steps. In-flight steps can still save their results. The run stays closed to further scheduling.
+- A successful step satisfies its selected outgoing edges. A failure with `continueOnError = true` stays `failed`, stores `{ error }` as its output, and satisfies its outgoing edges. This lets downstream steps read the error while the run continues.
 
 ### B6. Retry Flow
 

@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { db } from './client';
 import { stepRuns, workflowRuns } from './schema';
 
@@ -28,6 +28,28 @@ type RunStatus = keyof typeof runTransitions;
 type StepStatus = keyof typeof stepTransitions;
 type UpdateConnection = Pick<typeof db, 'update'>;
 type StepKey = Pick<typeof stepRuns.$inferSelect, 'runId' | 'nodeId' | 'iteration'>;
+export type RunTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export async function lockRun(tx: RunTransaction, runId: string) {
+  const [run] = await tx
+    .select({ status: workflowRuns.status })
+    .from(workflowRuns)
+    .where(eq(workflowRuns.id, runId))
+    .for('update');
+  return run;
+}
+
+export async function cancelRemainingSteps(tx: RunTransaction, runId: string) {
+  await tx
+    .update(stepRuns)
+    .set({ status: 'cancelled', finishedAt: sql`now()` })
+    .where(
+      and(
+        eq(stepRuns.runId, runId),
+        inArray(stepRuns.status, ['pending', 'queued', 'retrying', 'waiting']),
+      ),
+    );
+}
 
 function checkTransition(allowed: readonly string[] | undefined, from: string, to: string) {
   if (!allowed?.includes(to)) throw new Error(`Invalid state transition: ${from} -> ${to}`);

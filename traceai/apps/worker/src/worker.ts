@@ -1,5 +1,5 @@
 import { Worker, type WorkerOptions } from 'bullmq';
-import { db, transitionRun } from '@traceai/db';
+import { db, lockRun, transitionRun } from '@traceai/db';
 import type { Redis } from 'ioredis';
 import { loadRunGraph } from './run-graph';
 import {
@@ -26,11 +26,14 @@ export async function processStepJob(
   dispatcher: Dispatcher,
 ): Promise<void> {
   const claimed = await db.transaction(async (tx) => {
+    // Use the same lock order as advance, which may cancel queued steps.
+    const run = await lockRun(tx, job.runId);
+    if (run?.status !== 'queued' && run?.status !== 'running') return;
     const step = await claimStep(job, tx);
     if (!step) return;
     // A failed source load rolls the claim back. Duplicate jobs never touch the cache.
     const graph = await loadRunGraph(redis, step.runId, tx);
-    await transitionRun(tx, step.runId, 'queued', 'running');
+    if (run.status === 'queued') await transitionRun(tx, step.runId, 'queued', 'running');
     return { step, graph };
   });
   if (!claimed) return;

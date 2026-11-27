@@ -4,7 +4,14 @@ import { compileGraph, nextPendingStatus } from './index';
 const graph = compileGraph({
   nodes: [
     { id: 'trigger', data: { nodeType: 'manual-trigger' } },
-    { id: 'condition', data: { nodeType: 'condition', config: { expression: 'true' } } },
+    {
+      id: 'condition',
+      data: {
+        nodeType: 'condition',
+        config: { expression: 'true' },
+        settings: { continueOnError: true },
+      },
+    },
     { id: 'all', data: { nodeType: 'merge' } },
     { id: 'any', data: { nodeType: 'merge', config: { mode: 'any' } } },
   ],
@@ -65,6 +72,14 @@ it.each([
     condition: 'succeeded',
     branch: null,
     all: 'pending',
+    any: 'queued',
+  },
+  {
+    name: 'a tolerated parent failure',
+    trigger: 'succeeded',
+    condition: 'failed',
+    branch: null,
+    all: 'queued',
     any: 'queued',
   },
 ])('handles $name', ({ trigger, condition, branch, all, any }) => {

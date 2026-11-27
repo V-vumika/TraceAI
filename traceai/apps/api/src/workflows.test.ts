@@ -380,6 +380,18 @@ describe("Workflow routes", () => {
     })).toBeUndefined();
   });
 
+  it("completes a trigger-only run without dispatching any step jobs", async () => {
+    const versionId = await storeVersion(7, smallGraph);
+    const enqueue = vi.spyOn(StepDispatcher.prototype, "enqueue").mockResolvedValueOnce(undefined);
+    const response = await startRun(versionId, {});
+    expect(response.statusCode).toBe(202);
+    const { runId } = response.json<{ runId: string }>();
+    const run = await db.query.workflowRuns.findFirst({ where: eq(workflowRuns.id, runId) });
+    expect(run).toMatchObject({ status: "succeeded", finishedAt: expect.any(Date) });
+    expect(run?.startedAt).toEqual(run?.finishedAt);
+    expect(enqueue).toHaveBeenCalledExactlyOnceWith([]);
+  });
+
   it("returns the committed run ID and preserves ready steps when Redis rejects delivery", async () => {
     const versionId = await storeVersion(5, fullGraph);
     vi.spyOn(StepDispatcher.prototype, "enqueue").mockRejectedValueOnce(new Error("Redis unavailable"));

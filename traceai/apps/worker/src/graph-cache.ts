@@ -2,8 +2,8 @@ import { Redis } from 'ioredis';
 import { stepRedisConnection, type CompiledGraph, type Dependency } from '@traceai/engine';
 
 const ttlSeconds = 60 * 60;
-const revisionField = 'revision-v2';
-const graphField = 'compiled-v2';
+const revisionField = 'revision-v3';
+const graphField = 'compiled-v3';
 
 export function createGraphRedis(env: NodeJS.ProcessEnv) {
   const connection = stepRedisConnection(env);
@@ -37,9 +37,10 @@ function unpack(payload: string): CompiledGraph | undefined {
   const children = new Map<string, string[]>();
   const dependencies = new Map<string, Dependency[]>();
   const mergeAny = new Set<string>();
+  const continueOnError = new Set<string>();
   for (const entry of entries) {
     if (!Array.isArray(entry)) return;
-    const [id, incoming, outgoing, edges, waitForAny] = entry;
+    const [id, incoming, outgoing, edges, waitForAny, tolerateFailure] = entry;
     if (
       typeof id !== 'string' ||
       parents.has(id) ||
@@ -47,7 +48,8 @@ function unpack(payload: string): CompiledGraph | undefined {
       !stringList(outgoing) ||
       !Array.isArray(edges) ||
       !edges.every(isDependency) ||
-      typeof waitForAny !== 'boolean'
+      typeof waitForAny !== 'boolean' ||
+      typeof tolerateFailure !== 'boolean'
     )
       return;
     topologicalOrder.push(id);
@@ -55,8 +57,9 @@ function unpack(payload: string): CompiledGraph | undefined {
     children.set(id, outgoing);
     dependencies.set(id, edges);
     if (waitForAny) mergeAny.add(id);
+    if (tolerateFailure) continueOnError.add(id);
   }
-  return { topologicalOrder, parents, children, dependencies, mergeAny };
+  return { topologicalOrder, parents, children, dependencies, mergeAny, continueOnError };
 }
 
 type LoadedGraph = { revision: string; graph: CompiledGraph };
@@ -87,6 +90,7 @@ export async function cachedGraph(
         graph.children.get(id),
         graph.dependencies.get(id),
         graph.mergeAny.has(id),
+        graph.continueOnError.has(id),
       ]);
       // Publish the value and expiry together. The graph is usable even if Redis goes away.
       await redis

@@ -57,7 +57,7 @@
 - [x] **54.** Conditional-UPDATE state transitions
 - [x] **55.** advance() with SELECT ... FOR UPDATE
 - [x] **56.** Merge all/any + skip propagation
-- [ ] **57.** Final run status + continue-on-error
+- [x] **57.** Final run status + continue-on-error
 - [ ] **58.** LLM adapter interface
 - [ ] **59.** Mock provider (latency + error rate)
 - [ ] **60.** One real provider (OpenAI or Anthropic)

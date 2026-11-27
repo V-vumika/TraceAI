@@ -1,4 +1,4 @@
-import { validateGraph, type Graph, type GraphProblem } from '@traceai/nodes';
+import { commonSettingsSchema, validateGraph, type Graph, type GraphProblem } from '@traceai/nodes';
 
 export type Dependency = { source: string; sourceHandle: string | null };
 
@@ -8,7 +8,10 @@ export type CompiledGraph = {
   children: ReadonlyMap<string, readonly string[]>;
   dependencies: ReadonlyMap<string, readonly Dependency[]>;
   mergeAny: ReadonlySet<string>;
+  continueOnError: ReadonlySet<string>;
 };
+
+const failureSettings = commonSettingsSchema.pick({ continueOnError: true });
 
 type CompilerProblem = Omit<GraphProblem, 'code'> & {
   code: GraphProblem['code'] | 'duplicate-node-id';
@@ -56,10 +59,13 @@ export function compileGraph(graph: Graph): CompiledGraph {
   const outgoing = new Map<string, Set<string>>();
   const dependencies = new Map<string, Dependency[]>();
   const mergeAny = new Set<string>();
+  const continueOnError = new Set<string>();
   for (const { id, data } of graph.nodes) {
     incoming.set(id, new Set());
     outgoing.set(id, new Set());
     dependencies.set(id, []);
+    const settings = failureSettings.safeParse(data.settings ?? {});
+    if (settings.success && settings.data.continueOnError) continueOnError.add(id);
     const config = data.config;
     if (
       data.nodeType === 'merge' &&
@@ -97,5 +103,5 @@ export function compileGraph(graph: Graph): CompiledGraph {
     }
   }
 
-  return { topologicalOrder, parents, children, dependencies, mergeAny };
+  return { topologicalOrder, parents, children, dependencies, mergeAny, continueOnError };
 }

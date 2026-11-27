@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { transitionRun } from '@traceai/db';
+import { lockRun, transitionRun } from '@traceai/db';
 import type { Redis } from 'ioredis';
 import { loadRunGraph } from './run-graph';
 import type { StepJob } from '@traceai/engine';
@@ -8,6 +8,7 @@ import { processStepJob } from './worker';
 
 vi.mock('@traceai/db', () => ({
   db: { transaction: (fn: (tx: object) => unknown) => fn({}) },
+  lockRun: vi.fn(),
   transitionRun: vi.fn(),
 }));
 vi.mock('./run-graph', () => ({ loadRunGraph: vi.fn() }));
@@ -33,7 +34,10 @@ const dispatcher = { enqueue: vi.fn() };
 const loadGraph = vi.mocked(loadRunGraph);
 
 describe('step job processor', () => {
-  beforeEach(() => vi.resetAllMocks());
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(lockRun).mockResolvedValue({ status: 'queued' });
+  });
 
   it('calls the handler with the returned row and waits for its outcome', async () => {
     vi.mocked(claimStep).mockResolvedValue(claimed);
@@ -43,6 +47,7 @@ describe('step job processor', () => {
       children: new Map(),
       dependencies: new Map(),
       mergeAny: new Set<string>(),
+      continueOnError: new Set<string>(),
     };
     loadGraph.mockResolvedValue(graph);
     const failure = new Error('handler failed');
@@ -81,4 +86,15 @@ describe('step job processor', () => {
     await expect(processStepJob(job, redis, handler, dispatcher)).rejects.toBe(failure);
     expect(handler).not.toHaveBeenCalled();
   });
+
+  it.each(['succeeded', 'failed', 'cancelled', 'timed_out'])(
+    'does not claim jobs from a %s run',
+    async (status) => {
+      vi.mocked(lockRun).mockResolvedValue({ status });
+      const handler = vi.fn();
+      await processStepJob(job, redis, handler, dispatcher);
+      expect(claimStep).not.toHaveBeenCalled();
+      expect(handler).not.toHaveBeenCalled();
+    },
+  );
 });
